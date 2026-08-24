@@ -2,6 +2,8 @@ export interface Parsed {
   command: string | null;
   positional: string[];
   flags: Map<string, string | boolean>;
+  /** Every value seen for each flag, in order, for repeatable options. */
+  repeated: Map<string, string[]>;
 }
 
 /**
@@ -10,8 +12,18 @@ export interface Parsed {
  */
 export function parseArgs(argv: string[]): Parsed {
   const flags = new Map<string, string | boolean>();
+  const repeated = new Map<string, string[]>();
   const positional: string[] = [];
   let command: string | null = null;
+
+  const set = (key: string, value: string | boolean) => {
+    flags.set(key, value);
+    if (typeof value === "string") {
+      const prior = repeated.get(key) ?? [];
+      prior.push(value);
+      repeated.set(key, prior);
+    }
+  };
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -23,19 +35,22 @@ export function parseArgs(argv: string[]): Parsed {
       const body = arg.slice(2);
       const eq = body.indexOf("=");
       if (eq >= 0) {
-        flags.set(body.slice(0, eq), body.slice(eq + 1));
+        set(body.slice(0, eq), body.slice(eq + 1));
         continue;
       }
       if (body.startsWith("no-")) {
-        flags.set(body.slice(3), false);
+        set(body.slice(3), false);
         continue;
       }
       const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith("-")) {
-        flags.set(body, next);
+      // A repeatable pass-through value may itself look like a flag, so take
+      // the next token verbatim for those rather than treating it as boolean.
+      const passThrough = body === "backend-arg" || body === "set";
+      if (next !== undefined && (passThrough || !next.startsWith("-"))) {
+        set(body, next);
         i++;
       } else {
-        flags.set(body, true);
+        set(body, true);
       }
       continue;
     }
@@ -43,17 +58,17 @@ export function parseArgs(argv: string[]): Parsed {
       const next = argv[i + 1];
       const key = arg.slice(1);
       if (next !== undefined && !next.startsWith("-")) {
-        flags.set(key, next);
+        set(key, next);
         i++;
       } else {
-        flags.set(key, true);
+        set(key, true);
       }
       continue;
     }
     if (command === null) command = arg;
     else positional.push(arg);
   }
-  return { command, positional, flags };
+  return { command, positional, flags, repeated };
 }
 
 export function str(p: Parsed, key: string, fallback: string): string {
@@ -79,4 +94,9 @@ export function list(p: Parsed, key: string): string[] {
   const v = p.flags.get(key);
   if (typeof v !== "string") return [];
   return v.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/** Every value given for a repeatable flag, in the order they were typed. */
+export function multi(p: Parsed, key: string): string[] {
+  return p.repeated.get(key) ?? [];
 }

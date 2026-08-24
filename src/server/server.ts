@@ -1,6 +1,4 @@
-import { createServer, type IncomingMessage, type Server } from "node:http";
 import { timingSafeEqual } from "node:crypto";
-import { WebSocketServer, type WebSocket } from "ws";
 import type { ClientMessage, Proposal, RoomPolicy, ServerMessage, ToolRequest } from "../protocol.js";
 import { PROTOCOL_VERSION, decode, encode } from "../protocol.js";
 import { Room } from "../core/room.js";
@@ -9,10 +7,11 @@ import { applyOverrides, resolvePreset } from "../core/policy.js";
 import { createBackend, multiplayerSystemPrompt, type BackendName } from "../agent/index.js";
 import type { AgentBackend, TurnResult } from "../agent/types.js";
 import { id } from "../util/id.js";
+import type { Peer, Transport, TransportInfo } from "./transport.js";
 
 export interface ServerOptions {
-  host: string;
-  port: number;
+  /** How seats reach this room: a local port, or a relay the host dials out to. */
+  transport: Transport;
   roomName: string;
   token: string | null;
   policy: RoomPolicy;
@@ -22,9 +21,15 @@ export interface ServerOptions {
   maxTokens: number;
   showThinking: boolean;
   systemPromptExtra: string;
-  claudeBin: string;
+  /** Override the binary a CLI backend launches. */
+  backendBin: string;
+  /** Verbatim extra arguments appended to a CLI backend's command line. */
+  backendArgs: string[];
   permissionMode: string;
+  /** Session/thread id to continue, in whatever form that backend uses. */
   resume: string | null;
+  /** URL of an already-running agent server to attach to (OpenCode). */
+  attach: string | null;
   transcriptPath: string | null;
   /** Injected in tests to avoid touching a real model. */
   backendFactory?: (opts: { participants: string[] }) => AgentBackend;
@@ -37,9 +42,9 @@ export interface ServerOptions {
  */
 export class RoomServer {
   readonly room: Room;
-  private http: Server;
-  private wss: WebSocketServer;
-  private sockets = new Map<string, WebSocket>();
+  private transport: Transport;
+  private info: TransportInfo | null = null;
+  private peers = new Map<string, Peer>();
   private transcript: Transcript;
   private backend: AgentBackend | null = null;
   private opts: ServerOptions;
@@ -72,58 +77,48 @@ export class RoomServer {
       resolver({ allow, reason });
     });
 
-    this.http = createServer((req, res) => {
-      // A tiny health endpoint so `mpx join` can give a useful error before
-      // upgrading, and so tunnels have something to probe.
-      if (req.url?.startsWith("/health")) {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, room: this.room.name, protocol: PROTOCOL_VERSION }));
-        return;
-      }
-      res.writeHead(404).end("multiplayer-cli: connect with `mpx join`");
-    });
-    this.wss = new WebSocketServer({ server: this.http });
-    this.wss.on("connection", (ws, req) => this.onConnection(ws, req));
+    this.transport = opts.transport;
+    this.transport.onPeer((peer) => this.onPeer(peer));
   }
 
-  async listen(): Promise<{ host: string; port: number }> {
-    await new Promise<void>((resolve, reject) => {
-      this.http.once("error", reject);
-      this.http.listen(this.opts.port, this.opts.host, () => {
-        this.http.removeListener("error", reject);
-        resolve();
-      });
-    });
-    const addr = this.http.address();
-    const port = typeof addr === "object" && addr ? addr.port : this.opts.port;
+  async listen(): Promise<TransportInfo> {
+    this.info = await this.transport.start();
     this.running = true;
-    return { host: this.opts.host, port };
+    return this.info;
   }
 
-  private authorized(req: IncomingMessage): boolean {
+  /** The command teammates run, whichever transport is in play. */
+  joinUrl(): string {
+    return this.info?.joinUrl(this.opts.token) ?? "";
+  }
+
+  inviteDetail(): string[] {
+    return this.info?.detail(this.opts.token) ?? [];
+  }
+
+  private authorized(peer: Peer): boolean {
     if (!this.opts.token) return true;
-    const url = new URL(req.url ?? "/", "http://localhost");
-    const supplied = url.searchParams.get("t") ?? "";
-    const expected = this.opts.token;
+    const supplied = peer.query.get("t") ?? "";
     const a = Buffer.from(supplied);
-    const b = Buffer.from(expected);
+    const b = Buffer.from(this.opts.token);
     // Compare in constant time, and only when the lengths already match so
-    // timingSafeEqual does not throw on a short guess.
+    // timingSafeEqual does not throw on a short guess. This runs at the host
+    // even when a relay carried the connection here — the relay never sees it.
     return a.length === b.length && timingSafeEqual(a, b);
   }
 
-  private onConnection(ws: WebSocket, req: IncomingMessage): void {
-    if (!this.authorized(req)) {
+  private onPeer(ws: Peer): void {
+    if (!this.authorized(ws)) {
       ws.send(encode({ t: "error", text: "bad or missing room token" }));
       ws.close(4003, "unauthorized");
       return;
     }
 
-    const connectionId = id("p", 6);
+    const connectionId = ws.id;
     let joined = false;
 
-    ws.on("message", (raw) => {
-      const msg = decode<ClientMessage>(raw.toString());
+    ws.onMessage((raw) => {
+      const msg = decode<ClientMessage>(raw);
       if (!msg) {
         ws.send(encode({ t: "error", text: "malformed message" }));
         return;
@@ -152,7 +147,7 @@ export class RoomServer {
           role: msg.observer ? "observer" : isFirst ? "owner" : "member",
           connectionId,
         });
-        this.sockets.set(connectionId, ws);
+        this.peers.set(connectionId, ws);
         ws.send(
           encode({
             t: "welcome",
@@ -166,20 +161,19 @@ export class RoomServer {
       this.handle(connectionId, msg, ws);
     });
 
-    const bye = () => {
+    ws.onClose(() => {
       if (!joined) return;
-      this.sockets.delete(connectionId);
+      joined = false;
+      this.peers.delete(connectionId);
       this.room.leave(connectionId);
-    };
-    ws.on("close", bye);
-    ws.on("error", bye);
+    });
   }
 
   private motd(): string {
     return `${this.room.name} · ${this.opts.backend}${this.opts.model ? `/${this.opts.model}` : ""} · ${this.opts.cwd}`;
   }
 
-  private handle(pid: string, msg: ClientMessage, ws: WebSocket): void {
+  private handle(pid: string, msg: ClientMessage, ws: Peer): void {
     const fail = (text: string) => ws.send(encode({ t: "error", text }));
 
     switch (msg.t) {
@@ -279,9 +273,11 @@ export class RoomServer {
         maxTokens: this.opts.maxTokens,
         showThinking: this.opts.showThinking,
         systemPrompt: multiplayerSystemPrompt(this.opts.systemPromptExtra, participants, this.opts.cwd),
-        claudeBin: this.opts.claudeBin,
+        backendBin: this.opts.backendBin,
+        backendArgs: this.opts.backendArgs,
         permissionMode: this.opts.permissionMode,
         resume: this.opts.resume,
+        attach: this.opts.attach,
       });
     }
     this.room.setAgent({ backend: this.backend.name, model: this.backend.model });
@@ -383,14 +379,7 @@ export class RoomServer {
 
   private broadcast(msg: ServerMessage): void {
     const frame = encode(msg);
-    for (const ws of this.sockets.values()) {
-      if (ws.readyState === ws.OPEN) ws.send(frame);
-    }
-  }
-
-  get port(): number {
-    const addr = this.http.address();
-    return typeof addr === "object" && addr ? addr.port : this.opts.port;
+    for (const peer of this.peers.values()) peer.send(frame);
   }
 
   get isRunning(): boolean {
@@ -406,10 +395,9 @@ export class RoomServer {
       resolve({ allow: false, reason: "room closing" });
     }
     this.room.close();
-    for (const ws of this.sockets.values()) ws.close(1001, "room closed");
-    this.sockets.clear();
-    await new Promise<void>((r) => this.wss.close(() => r()));
-    await new Promise<void>((r) => this.http.close(() => r()));
+    for (const peer of this.peers.values()) peer.close(1001, "room closed");
+    this.peers.clear();
+    await this.transport.close();
     await this.backend?.close();
     await this.transcript.close();
   }

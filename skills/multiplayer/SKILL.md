@@ -1,6 +1,6 @@
 ---
 name: multiplayer
-description: Start or join a shared multiplayer AI session with teammates using multiplayer-cli (mpx), where the group proposes and votes on what gets sent to the model. Use when the user wants to pair or mob on a session, share their AI session with colleagues, collaborate on prompts, add teammates to what they are working on, or set up group review of prompts and tool calls.
+description: Start or join a shared multiplayer AI session with teammates using multiplayer-cli (mpx), where the group proposes and votes on what gets sent to the model. Works with Claude Code, Codex, Copilot CLI and OpenCode. Use when the user wants to pair or mob on a session, share their AI session with colleagues, collaborate on prompts, add teammates to what they are working on, or set up group review of prompts and tool calls.
 ---
 
 # Multiplayer AI sessions
@@ -16,6 +16,11 @@ Check the tool is present (`mpx --version`); if not, `npm install -g multiplayer
 ```bash
 mpx host --backend claude-code --cwd .
 ```
+
+Pick the backend from whatever the user already uses: `claude-code`, `codex`,
+`copilot`, `opencode`, or `anthropic` (Claude via the API, and the only backend
+where the room also votes on the model's tool calls). `mpx backends` lists them.
+Only the host needs the CLI installed and the credentials.
 
 Then give the user the `mpx join …` line it prints, verbatim, so they can pass it
 to their teammates. Do not paste the join token into anything shared more
@@ -38,14 +43,19 @@ Add `--observer` for a read-only seat.
 
 ## Reaching teammates who are not on the same network
 
-Default bind is `127.0.0.1`. Prefer forwarding over a tunnel the user already
-trusts rather than binding to a public interface:
+Default bind is `127.0.0.1`. Options, in the order worth suggesting:
 
-```bash
-ssh -R 7777:localhost:7777 user@host
-```
-
-`--host 0.0.0.0` is fine on a trusted LAN.
+1. A relay, if the user has any box the team can reach — no inbound port on the
+   host at all:
+   ```bash
+   mpx relay --port 7788                       # once, on that box
+   mpx host --relay wss://relay.example.com    # on the host
+   ```
+   Say plainly that the relay carries session content in the clear, so it should
+   be theirs and behind TLS. It never gets the room token and cannot admit
+   anyone the host would refuse.
+2. An SSH tunnel they already trust: `ssh -R 7777:localhost:7777 user@host`.
+3. `--host 0.0.0.0` on a trusted LAN.
 
 ## In the session
 
@@ -62,9 +72,21 @@ and why.
 mpx transcript .mpx/<room>.jsonl --votes
 ```
 
+## Riding a session that already exists
+
+`--resume <id>` continues a session the backend already has. `--attach <url>`
+points OpenCode at a running `opencode serve` that other clients may already be
+on, so the room joins an existing shared session instead of starting one.
+
+If a CLI's flags have drifted, `--backend-bin` and the repeatable
+`--backend-arg` fix it from the command line.
+
 ## Notes worth passing on
 
-- Only the host needs model credentials.
+- Only the host needs model credentials, and only the host needs the coding CLI.
+- The room always votes on what gets **sent**. Only the `anthropic` and `echo`
+  backends also vote on the model's **tool calls** — the other CLIs run their
+  own agent loops and enforce their own permissions.
 - Tools run on the **host's** machine in `--cwd`; everyone in the room can
   propose work that touches it. Reads are auto-allowed, writes and shell
   commands go to a vote. `--policy strict` puts every one of them to a

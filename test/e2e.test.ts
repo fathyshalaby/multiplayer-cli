@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { RoomServer } from "../src/server/server.js";
+import { LocalWsTransport } from "../src/server/transport.js";
 import { Connection } from "../src/client/connection.js";
 import { resolvePreset } from "../src/core/policy.js";
 import type { ServerMessage } from "../src/protocol.js";
@@ -65,9 +66,9 @@ interface Seat {
 
 async function startRoom(preset: string, opts: Partial<{ token: string | null }> = {}) {
   const backend = new ScriptedBackend();
+  const transport = new LocalWsTransport({ host: "127.0.0.1", port: 0, roomName: "e2e" });
   const server = new RoomServer({
-    host: "127.0.0.1",
-    port: 0,
+    transport,
     roomName: "e2e",
     token: opts.token === undefined ? null : opts.token,
     policy: resolvePreset(preset)!,
@@ -77,14 +78,16 @@ async function startRoom(preset: string, opts: Partial<{ token: string | null }>
     maxTokens: 1000,
     showThinking: false,
     systemPromptExtra: "",
-    claudeBin: "claude",
+    backendBin: "",
+    backendArgs: [],
     permissionMode: "acceptEdits",
     resume: null,
+    attach: null,
     transcriptPath: null,
     backendFactory: () => backend,
   });
-  const { port } = await server.listen();
-  return { server, backend, port };
+  await server.listen();
+  return { server, backend, port: transport.port };
 }
 
 function connect(port: number, name: string, token?: string, observer = false): Promise<Seat> {
@@ -361,14 +364,16 @@ test("lazy consensus ships the prompt when nobody objects in time", async (t) =>
   const backend = new ScriptedBackend();
   const policy = resolvePreset("pair")!;
   policy.prompt.autoApproveMs = 150; // a timer short enough for a test
+  const timerTransport = new LocalWsTransport({ host: "127.0.0.1", port: 0, roomName: "timer" });
   const server = new RoomServer({
-    host: "127.0.0.1", port: 0, roomName: "timer", token: null, policy,
+    transport: timerTransport, roomName: "timer", token: null, policy,
     cwd: process.cwd(), backend: "echo", model: "", maxTokens: 100,
-    showThinking: false, systemPromptExtra: "", claudeBin: "claude",
-    permissionMode: "acceptEdits", resume: null, transcriptPath: null,
+    showThinking: false, systemPromptExtra: "", backendBin: "", backendArgs: [],
+    permissionMode: "acceptEdits", resume: null, attach: null, transcriptPath: null,
     backendFactory: () => backend,
   });
-  const { port } = await server.listen();
+  await server.listen();
+  const port = timerTransport.port;
   t.after(async () => await server.close());
 
   const alice = await connect(port, "alice");

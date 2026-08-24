@@ -1,22 +1,29 @@
 #!/usr/bin/env node
-import { networkInterfaces, homedir } from "node:os";
+import { homedir } from "node:os";
 import { resolve, join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { RoomServer } from "./server/server.js";
+import { LocalWsTransport, RelayTransport, type Transport } from "./server/transport.js";
+import { Relay } from "./server/relay.js";
 import { Connection } from "./client/connection.js";
 import { Tui } from "./client/tui.js";
-import { applyOverrides, describeGate, presetNames, resolvePreset, DEFAULT_PRESET } from "./core/policy.js";
+import {
+  applyOverrides,
+  describeGate,
+  presetNames,
+  resolvePreset,
+  DEFAULT_PRESET,
+} from "./core/policy.js";
 import { readTranscript } from "./core/transcript.js";
-import { BACKENDS, type BackendName } from "./agent/index.js";
+import { BACKENDS, BACKEND_HELP, GATES_TOOLS, type BackendName } from "./agent/index.js";
 import { roomName, token as makeToken } from "./util/id.js";
-import { bool, num, parseArgs, str, type Parsed } from "./util/args.js";
+import { bool, multi, num, parseArgs, str, type Parsed } from "./util/args.js";
 import * as c from "./util/ansi.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 async function main(): Promise<void> {
-  const argv = process.argv.slice(2);
-  const parsed = parseArgs(argv);
+  const parsed = parseArgs(process.argv.slice(2));
 
   if (parsed.flags.has("version") || parsed.flags.has("v")) {
     console.log(VERSION);
@@ -34,10 +41,14 @@ async function main(): Promise<void> {
       return await cmdServe(parsed);
     case "join":
       return await cmdJoin(parsed);
+    case "relay":
+      return await cmdRelay(parsed);
     case "transcript":
       return await cmdTranscript(parsed);
     case "policies":
       return cmdPolicies();
+    case "backends":
+      return cmdBackends();
     case "help":
       return usage();
     default:
@@ -48,87 +59,102 @@ async function main(): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
-/* host / serve                                                        */
+/* room configuration                                                  */
 /* ------------------------------------------------------------------ */
 
-function buildServerOptions(p: Parsed) {
+function buildRoomConfig(p: Parsed) {
   const presetName = str(p, "policy", DEFAULT_PRESET);
   const preset = resolvePreset(presetName);
-  if (!preset) {
-    fatal(`unknown policy "${presetName}" — try one of: ${presetNames().join(", ")}`);
-  }
-  const overrides = [...p.positional.filter((a) => a.includes("="))];
-  for (const [k, v] of p.flags) {
-    if (k === "set" && typeof v === "string") overrides.push(v);
-  }
+  if (!preset) fatal(`unknown policy "${presetName}" — try one of: ${presetNames().join(", ")}`);
+
+  const overrides = [...p.positional.filter((a) => a.includes("=")), ...multi(p, "set")];
   const { policy, errors } = applyOverrides(preset!, overrides);
   if (errors.length) fatal(errors.join("\n"));
 
   const backend = str(p, "backend", "anthropic") as BackendName;
   if (!BACKENDS.includes(backend)) {
-    fatal(`unknown backend "${backend}" — try one of: ${BACKENDS.join(", ")}`);
+    fatal(`unknown backend "${backend}" — try one of: ${BACKENDS.join(", ")}  (see \`mpx backends\`)`);
   }
 
   const cwd = resolve(str(p, "cwd", process.cwd()));
   const name = str(p, "room", roomName());
   const open = bool(p, "open", false);
-  const transcript =
-    bool(p, "transcript", true) === false
-      ? null
-      : str(p, "transcript-path", join(cwd, ".mpx", `${name}.jsonl`));
+  const transcriptPath = bool(p, "transcript", true)
+    ? str(p, "transcript-path", join(cwd, ".mpx", `${name}.jsonl`))
+    : null;
 
   return {
-    host: str(p, "host", "127.0.0.1"),
+    bindHost: str(p, "host", "127.0.0.1"),
     port: num(p, "port", 7777),
-    roomName: name,
-    token: open ? null : str(p, "token", makeToken()),
-    policy,
-    cwd,
-    backend,
-    model: str(p, "model", backend === "anthropic" ? "claude-opus-5" : ""),
-    maxTokens: num(p, "max-tokens", 32000),
-    showThinking: bool(p, "thinking", false),
-    systemPromptExtra: str(p, "system", ""),
-    claudeBin: str(p, "claude-bin", "claude"),
-    permissionMode: str(p, "permission-mode", "acceptEdits"),
-    resume: str(p, "resume", "") || null,
-    transcriptPath: transcript,
+    relay: str(p, "relay", "") || null,
+    server: {
+      roomName: name,
+      token: open ? null : str(p, "token", makeToken()),
+      policy,
+      cwd,
+      backend,
+      model: str(p, "model", backend === "anthropic" ? "claude-opus-5" : ""),
+      maxTokens: num(p, "max-tokens", 32000),
+      showThinking: bool(p, "thinking", false),
+      systemPromptExtra: str(p, "system", ""),
+      backendBin: str(p, "backend-bin", "") || str(p, "claude-bin", ""),
+      backendArgs: multi(p, "backend-arg"),
+      permissionMode: str(p, "permission-mode", "acceptEdits"),
+      resume: str(p, "resume", "") || null,
+      attach: str(p, "attach", "") || null,
+      transcriptPath,
+    },
   };
 }
 
-async function cmdHost(p: Parsed): Promise<void> {
-  const opts = buildServerOptions(p);
-  const server = new RoomServer(opts);
-  const { port } = await server.listen();
+function makeTransport(cfg: ReturnType<typeof buildRoomConfig>, onWarn: (t: string) => void): Transport {
+  if (cfg.relay) {
+    return new RelayTransport({ url: cfg.relay, roomName: cfg.server.roomName, onWarn });
+  }
+  return new LocalWsTransport({ host: cfg.bindHost, port: cfg.port, roomName: cfg.server.roomName });
+}
 
-  const url = joinUrl(opts.host, port, opts.token);
-  const lan = lanUrl(port, opts.token);
-
-  const banner = [
+function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServer, warnings: string[]): string[] {
+  const s = cfg.server;
+  const gatesTools = GATES_TOOLS.includes(s.backend);
+  return [
     "",
-    c.bold(`  multiplayer-cli  ·  room ${c.cyan(opts.roomName)}`),
-    c.dim(`  ${opts.backend}${opts.model ? `/${opts.model}` : ""}  ·  ${opts.cwd}`),
-    c.dim(`  prompts: ${describeGate(opts.policy.prompt)}   tools: ${describeGate(opts.policy.tool)}   auto-allow: ${opts.policy.autoAllowToolRisks.join(",") || "none"}`),
+    c.bold(`  multiplayer-cli  ·  room ${c.cyan(s.roomName)}`),
+    c.dim(`  ${s.backend}${s.model ? `/${s.model}` : ""}  ·  ${s.cwd}`),
+    c.dim(
+      `  prompts: ${describeGate(s.policy.prompt)}   tools: ${
+        gatesTools
+          ? `${describeGate(s.policy.tool)} (auto-allow: ${s.policy.autoAllowToolRisks.join(",") || "none"})`
+          : `${s.backend}'s own permissions`
+      }`,
+    ),
+    ...(s.attach ? [c.dim(`  attached to ${s.attach}`)] : []),
     "",
     c.bold("  invite your team:"),
-    `    ${c.green(`mpx join ${url}`)}`,
-    ...(lan && lan !== url ? [c.dim(`    on your network:  mpx join ${lan}`)] : []),
-    ...(opts.host === "127.0.0.1"
-      ? [c.dim("    remote teammate:  ssh -R 7777:localhost:" + port + " them@host   (then join 127.0.0.1)")]
-      : []),
+    `    ${c.green(`mpx join ${server.joinUrl()}`)}`,
+    ...server.inviteDetail().map((d) => c.dim(`    ${d}`)),
+    ...warnings.map((w) => c.yellow(`    ! ${w}`)),
     "",
   ];
+}
 
-  const conn = new Connection({
-    url: joinUrl("127.0.0.1", port, opts.token),
-    name: str(p, "name", defaultName()),
-    reconnect: true,
-  });
+/* ------------------------------------------------------------------ */
+/* host / serve                                                        */
+/* ------------------------------------------------------------------ */
 
+async function cmdHost(p: Parsed): Promise<void> {
+  const cfg = buildRoomConfig(p);
+  const warnings: string[] = [];
+  const transport = makeTransport(cfg, (t) => warnings.push(t));
+  const server = new RoomServer({ ...cfg.server, transport });
+  await server.listen();
+
+  const name = str(p, "name", defaultName());
+  const conn = new Connection({ url: server.joinUrl(), name, reconnect: true });
   const tui = new Tui({
     connection: conn,
-    name: str(p, "name", defaultName()),
-    banner,
+    name,
+    banner: inviteBanner(cfg, server, warnings),
     onExit: () => void shutdown(),
   });
 
@@ -148,13 +174,16 @@ async function cmdHost(p: Parsed): Promise<void> {
 }
 
 async function cmdServe(p: Parsed): Promise<void> {
-  const opts = buildServerOptions(p);
-  const server = new RoomServer(opts);
-  const { port } = await server.listen();
-  const url = joinUrl(opts.host === "0.0.0.0" ? lanAddress() ?? "127.0.0.1" : opts.host, port, opts.token);
-  console.log(`room ${opts.roomName} listening on ${opts.host}:${port}`);
-  console.log(`join with:  mpx join ${url}`);
-  if (opts.transcriptPath) console.log(`transcript: ${opts.transcriptPath}`);
+  const cfg = buildRoomConfig(p);
+  const transport = makeTransport(cfg, (t) => console.error(`! ${t}`));
+  const server = new RoomServer({ ...cfg.server, transport });
+  await server.listen();
+
+  console.log(`room ${cfg.server.roomName} · ${cfg.server.backend}${cfg.server.model ? `/${cfg.server.model}` : ""}`);
+  console.log(`join with:  mpx join ${server.joinUrl()}`);
+  for (const line of server.inviteDetail()) console.log(`            ${line}`);
+  if (cfg.server.transcriptPath) console.log(`transcript: ${cfg.server.transcriptPath}`);
+
   const stop = async () => {
     await server.close();
     process.exit(0);
@@ -171,7 +200,7 @@ async function cmdJoin(p: Parsed): Promise<void> {
   const target = p.positional[0] ?? (typeof p.flags.get("url") === "string" ? String(p.flags.get("url")) : null);
   if (!target) fatal("usage: mpx join <url>   (the host prints one when the room starts)");
 
-  const url = normalizeUrl(target!);
+  const url = normalizeJoinUrl(target!);
   const name = str(p, "name", defaultName());
   const conn = new Connection({
     url,
@@ -197,7 +226,42 @@ async function cmdJoin(p: Parsed): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
-/* transcript                                                          */
+/* relay                                                               */
+/* ------------------------------------------------------------------ */
+
+async function cmdRelay(p: Parsed): Promise<void> {
+  const bind = str(p, "host", "0.0.0.0");
+  const relay = new Relay({
+    host: bind,
+    port: num(p, "port", 7788),
+    maxRooms: num(p, "max-rooms", 64),
+    maxPeersPerRoom: num(p, "max-peers", 32),
+    joinsPerMinute: num(p, "joins-per-minute", 60),
+    ...(bool(p, "quiet", false)
+      ? {}
+      : { onLog: (line: string) => console.log(`${new Date().toISOString().slice(11, 19)} ${line}`) }),
+  });
+  const port = await relay.listen();
+
+  console.log(`multiplayer-cli relay listening on ${bind}:${port}`);
+  console.log("");
+  console.log(`  hosts run:  mpx host --relay ws://<this-machine>:${port}`);
+  console.log("  then hand out the join URL it prints. No inbound port on their side.");
+  console.log("");
+  console.log(c.dim("  The relay forwards frames between a room's host and its seats. It never"));
+  console.log(c.dim("  receives the room token and cannot admit anyone the host would refuse —"));
+  console.log(c.dim("  but session content passes through in the clear. Run your own, behind TLS."));
+
+  const stop = async () => {
+    await relay.close();
+    process.exit(0);
+  };
+  process.on("SIGINT", () => void stop());
+  process.on("SIGTERM", () => void stop());
+}
+
+/* ------------------------------------------------------------------ */
+/* transcript / listings                                               */
 /* ------------------------------------------------------------------ */
 
 async function cmdTranscript(p: Parsed): Promise<void> {
@@ -211,8 +275,7 @@ async function cmdTranscript(p: Parsed): Promise<void> {
     switch (msg.t) {
       case "proposal":
         if (msg.event !== "new") {
-          if (!votesOnly) break;
-          console.log(`${ts} ${c.dim("vote")} ${msg.proposal.id} ${msg.tally.yes}✓ ${msg.tally.no}✗`);
+          if (votesOnly) console.log(`${ts} ${c.dim("vote")} ${msg.proposal.id} ${msg.tally.yes}✓ ${msg.tally.no}✗`);
           break;
         }
         console.log(`${ts} ${c.cyan("▸")} ${msg.proposal.authorName} ${c.bold(msg.proposal.id)}: ${msg.proposal.text}`);
@@ -252,7 +315,9 @@ function cmdPolicies(): void {
   console.log("");
   for (const name of presetNames()) {
     const p = resolvePreset(name)!;
-    console.log(`  ${c.bold(name.padEnd(13))} prompts: ${describeGate(p.prompt).padEnd(22)} tools: ${describeGate(p.tool).padEnd(22)} auto-allow: ${p.autoAllowToolRisks.join(",") || "none"}`);
+    console.log(
+      `  ${c.bold(name.padEnd(13))} prompts: ${describeGate(p.prompt).padEnd(22)} tools: ${describeGate(p.tool).padEnd(22)} auto-allow: ${p.autoAllowToolRisks.join(",") || "none"}`,
+    );
   }
   console.log("");
   console.log(c.dim("  override any of it:  mpx host --policy team --set mode=quorum --set quorum=3 --set timeout=90s"));
@@ -261,30 +326,28 @@ function cmdPolicies(): void {
   console.log("");
 }
 
+function cmdBackends(): void {
+  console.log("");
+  for (const name of BACKENDS) {
+    const gates = GATES_TOOLS.includes(name) ? c.green("room votes on tools") : c.dim("own permissions");
+    console.log(`  ${c.bold(name.padEnd(15))} ${gates}`);
+    console.log(`  ${" ".repeat(15)} ${c.dim(BACKEND_HELP[name])}`);
+  }
+  console.log("");
+  console.log(c.dim("  Every backend gates what the room SENDS. Only anthropic and echo also put the"));
+  console.log(c.dim("  model's own tool calls to a vote; the rest enforce their own permission systems."));
+  console.log("");
+  console.log(c.dim("  When a CLI's flags drift, repair it without waiting for a release here:"));
+  console.log(c.dim("    mpx host --backend codex --backend-bin /path/to/codex \\"));
+  console.log(c.dim("             --backend-arg --sandbox --backend-arg workspace-write"));
+  console.log("");
+}
+
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-function joinUrl(host: string, port: number, token: string | null): string {
-  const h = host === "0.0.0.0" ? "127.0.0.1" : host;
-  return `ws://${h}:${port}/${token ? `?t=${token}` : ""}`;
-}
-
-function lanUrl(port: number, token: string | null): string | null {
-  const addr = lanAddress();
-  return addr ? joinUrl(addr, port, token) : null;
-}
-
-function lanAddress(): string | null {
-  for (const addrs of Object.values(networkInterfaces())) {
-    for (const a of addrs ?? []) {
-      if (a.family === "IPv4" && !a.internal) return a.address;
-    }
-  }
-  return null;
-}
-
-function normalizeUrl(target: string): string {
+function normalizeJoinUrl(target: string): string {
   if (target.startsWith("ws://") || target.startsWith("wss://")) return target;
   if (target.startsWith("http://")) return "ws://" + target.slice(7);
   if (target.startsWith("https://")) return "wss://" + target.slice(8);
@@ -328,22 +391,32 @@ ${c.bold("multiplayer-cli")} — make your AI session multiplayer
   ${c.bold("mpx host")}  [options]        start a room, share the AI session, and take a seat
   ${c.bold("mpx join")}  <url> [options]  join someone else's room
   ${c.bold("mpx serve")} [options]        run a room with no local seat (server only)
+  ${c.bold("mpx relay")} [options]        run a relay so hosts need no inbound port
   ${c.bold("mpx transcript")} <file>      replay a session's audit log
+  ${c.bold("mpx backends")}               list the AI CLIs you can put in a room
   ${c.bold("mpx policies")}               list the decision presets
 
 ${c.bold("Room options")}  (host / serve)
+  --backend <name>       ${BACKENDS.join(" | ")}
   --policy <name>        decision preset: ${presetNames().join(" | ")}   (default: ${DEFAULT_PRESET})
   --set key=value        override one policy key; repeatable
-  --backend <name>       ${BACKENDS.join(" | ")}   (default: anthropic)
-  --model <id>           model for the anthropic backend (default: claude-opus-5)
+  --model <id>           model to ask the backend for
   --cwd <dir>            working directory the session and its tools see
-  --port <n>             listen port (default: 7777)
-  --host <addr>          bind address (default: 127.0.0.1; use 0.0.0.0 for your LAN)
-  --open                 no join token — anyone who can reach the port can join
   --room <name>          fixed room name instead of a generated one
   --thinking             stream summarized reasoning to the room
   --no-transcript        do not write an audit log
-  --resume <id>          resume a claude-code session (claude-code backend)
+
+${c.bold("Reaching your team")}
+  --port <n>             listen port (default: 7777)
+  --host <addr>          bind address (default: 127.0.0.1; 0.0.0.0 for your LAN)
+  --relay <url>          serve through a relay instead — no inbound port needed
+  --open                 no join token; anyone who can reach the room may join
+
+${c.bold("Riding an existing session")}
+  --resume <id>          continue a session/thread the backend already has
+  --attach <url>         attach to a running \`opencode serve\` other clients are on
+  --backend-bin <path>   override the binary the backend launches
+  --backend-arg <arg>    append a verbatim argument to it; repeatable
   --permission-mode <m>  claude-code permission mode (default: acceptEdits)
 
 ${c.bold("Seat options")}  (host / join)

@@ -50,11 +50,14 @@ Open a second terminal, paste that command, and you have a two-seat room. Type a
 sentence in one; watch it appear as a *proposal* in the other; approve it with
 `/y` and watch the reply stream to both.
 
-For real work:
+For real work, point it at whichever CLI your team already uses:
 
 ```bash
 mpx host                                # Claude via the API (default)
 mpx host --backend claude-code          # share an actual Claude Code session
+mpx host --backend codex                # OpenAI Codex
+mpx host --backend copilot              # GitHub Copilot CLI
+mpx host --backend opencode             # OpenCode
 ```
 
 ---
@@ -70,6 +73,8 @@ mpx host --backend claude-code          # share an actual Claude Code session
 
 The host runs the room. Participants are thin seats: they never talk to the
 model, they propose and vote, and the room streams one response to everyone.
+Only the host needs credentials, and only the host needs the coding CLI
+installed — the rest of the team just needs `mpx`.
 
 **Typing is suggesting.** In a gated room, a line of text is a proposal, not a
 message. It gets an id (`#4`), a tally, and usually a countdown.
@@ -160,20 +165,33 @@ The host binds to `127.0.0.1` and requires a token by default.
 
 **Same machine** — just run the printed `mpx join` command.
 
-**Same network** — `mpx host --host 0.0.0.0`, then share the LAN invite it
-prints.
+**Same network** — `mpx host --host 0.0.0.0`, then share the LAN invite it prints.
 
-**Anywhere** — keep the default bind and forward the port over SSH:
+**Anywhere, no inbound port** — run a relay and dial out to it:
+
+```bash
+# once, on any box your team can reach (a small VPS is plenty)
+mpx relay --port 7788
+
+# then, on the host — nothing to open, nothing to forward
+mpx host --relay wss://relay.example.com
+#   invite your team:
+#     mpx join wss://relay.example.com/r/amber-ridge-04?t=Kf3nQ…
+```
+
+The relay is a dumb pipe. It never receives the room token and cannot admit
+anyone the host would refuse — every seat still has to pass the host's own check
+end-to-end through it, and every vote is still counted by the host. What it
+*can* see is session content in the clear, so run your own and put TLS in front
+of it (`mpx relay` speaks plain `ws://`; terminate TLS with Caddy or nginx).
+It caps rooms, seats per room, and join attempts per minute.
+
+**Still fine** — an SSH tunnel, if you would rather not run anything:
 
 ```bash
 ssh -R 7777:localhost:7777 you@jumpbox     # on the host
 mpx join ws://127.0.0.1:7777/?t=…          # on the jumpbox
 ```
-
-Tailscale, ngrok, or any other tunnel works the same way. The token is a
-bearer secret in the URL and the transport is plain `ws://` unless you put TLS
-in front of it, so treat the invite like a password and prefer a tunnel you
-already trust over binding to a public interface.
 
 Read-only seats:
 
@@ -185,18 +203,58 @@ mpx join <url> --observer     # sees everything, cannot propose or vote
 
 ## Backends
 
-| `--backend` | What it is |
-|---|---|
-| `anthropic` *(default)* | A Claude conversation owned by the room, with a small tool surface (`read_file`, `list_dir`, `search`, `write_file`, `bash`) that the room votes on. Needs `ANTHROPIC_API_KEY` or an `ant auth login` profile. |
-| `claude-code` | A real `claude` CLI session, shared. One long-lived process, streamed to every seat. Tool permissions are Claude Code's own (`--permission-mode`); the room still votes on everything going in. Add `--resume <id>` to pick a session back up. |
-| `echo` | An offline stand-in. No key, no spend — a complete dry run of the collaboration machinery. |
+Bring whichever coding CLI your team already uses. The room's job is the same in
+every case: nothing gets sent until the group agrees.
 
-Tools run on the **host's** machine, in `--cwd`, and paths that escape it are
-refused. Everyone in the room can propose things that touch that directory, so
-invite accordingly — and if you're not sure about the room, `--policy strict`
-puts every write and every shell command in front of a unanimous vote.
+| `--backend` | Session model | Streaming | Room votes on tool calls |
+|---|---|---|---|
+| `anthropic` *(default)* | Claude conversation owned by the room | per-token | **yes** |
+| `claude-code` | one long-lived `claude` process | per-token | no — Claude Code's own permissions |
+| `codex` | `codex exec --json`, resuming the thread each turn | per item | no — Codex's sandbox/approval modes |
+| `copilot` | `copilot -p`, resuming the session each turn | raw stdout | no — `--allow-tool` / `--deny-tool` |
+| `opencode` | `opencode run`, resuming the session each turn | raw stdout | no — OpenCode's own permissions |
+| `opencode-json` | same, with `--format json` for structured events | per event | no |
+| `echo` | offline stand-in, no key and no spend | per-token | **yes** |
 
----
+`mpx backends` prints this with the details.
+
+**One honest limitation.** Every backend gates what the room *sends*. Only
+`anthropic` and `echo` also put the model's own tool calls to a vote, because
+those are the two where mpx owns the agent loop and can pause between
+`tool_use` and execution. The other CLIs run their own loops and never ask us,
+so their own permission systems apply — pair them with `--permission-mode`,
+`--allow-tool`, `--sandbox` and friends via `--backend-arg`.
+
+### These CLIs move fast
+
+Flags change between releases. Two escape hatches mean a drifted tool is a
+command-line fix, not a version bump here:
+
+```bash
+mpx host --backend codex --backend-bin /opt/bin/codex          --backend-arg --sandbox --backend-arg workspace-write
+```
+
+`--backend-bin` picks the binary; `--backend-arg` is repeatable and appended
+verbatim, last, so it overrides what the profile built.
+
+### Riding a session that is already shared
+
+Some of these tools have their own sharing, and where they do, mpx can sit on
+top of it rather than compete with it.
+
+```bash
+# OpenCode's server already accepts several clients on one session.
+opencode serve --port 4096
+mpx host --backend opencode --attach http://localhost:4096
+
+# Continue a session that already exists, in any backend that has one.
+mpx host --backend claude-code --resume 8f3a…
+mpx host --backend codex       --resume th_abc123
+```
+
+`--resume` takes whatever that tool calls a session or thread id; mpx captures
+the id from the first turn and reuses it for every turn after, so a room really
+is one conversation rather than a series of unrelated ones.
 
 ## Transcripts
 
@@ -233,7 +291,7 @@ cp -r skills/multiplayer ~/.claude/skills/
 ```bash
 npm install
 npm run build
-npm test          # 81 tests: gate logic, room rules, and live WebSocket sessions
+npm test          # 102 tests: gate logic, room rules, CLI adapters, relay, live sessions
 ```
 
 The layout follows the seams:
@@ -243,10 +301,18 @@ src/protocol.ts       the wire contract
 src/core/gate.ts      the consent decision — pure, no clock of its own
 src/core/room.ts      participants, proposals, timers, queue
 src/core/policy.ts    presets and overrides
-src/server/           WebSocket room, wiring the room to the session
-src/agent/            backends and the voted tool surface
+src/server/transport  how seats arrive: a local port, or a relay dialled out to
+src/server/relay.ts   the relay itself — a pipe that knows as little as possible
+src/server/server.ts  the room, wired to the session
+src/agent/profiles.ts one small profile per coding CLI: argv in, room events out
+src/agent/process.ts  the shared process driver those profiles plug into
 src/client/           connection, commands, terminal UI
 ```
+
+Adding a CLI is a profile, not a class: build an argv, say whether output is
+JSONL or text, and map that tool's events onto the room's. The adapters are
+tested against stub binaries that emit exactly what each tool documents, so
+flag construction and event mapping are covered without the tool installed.
 
 `gate.ts` is deliberately pure: same inputs, same verdict, with `now` passed in.
 Every voting rule in the table above is a unit test.
