@@ -3,6 +3,7 @@ import { networkInterfaces } from "node:os";
 import { WebSocketServer, WebSocket } from "ws";
 import { PROTOCOL_VERSION } from "../protocol.js";
 import { id } from "../util/id.js";
+import { httpOrigin, serveWeb, shareLink } from "./web.js";
 
 /**
  * One connected seat, independent of how it got here.
@@ -22,8 +23,12 @@ export interface Peer {
 }
 
 export interface TransportInfo {
-  /** The command teammates run, already carrying the token. */
+  /** The WebSocket URL a terminal seat connects to. */
   joinUrl(token: string | null): string;
+  /** How the host's own seat connects — loopback, never the advertised address. */
+  selfUrl(token: string | null): string;
+  /** The clickable link a host pastes into chat, or null if unreachable. */
+  shareUrl(token: string | null): string | null;
   /** Extra invite lines — a LAN address, a tunnel hint, a relay note. */
   detail(token: string | null): string[];
 }
@@ -54,11 +59,13 @@ export class LocalWsTransport implements Transport {
   constructor(opts: LocalTransportOptions) {
     this.opts = opts;
     this.http = createServer((req, res) => {
-      if (req.url?.startsWith("/health")) {
+      const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+      if (pathname.startsWith("/health")) {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, room: opts.roomName, protocol: PROTOCOL_VERSION }));
         return;
       }
+      if (serveWeb(pathname, res)) return;
       res.writeHead(404).end("multiplayer-cli: connect with `mpx join`");
     });
     this.wss = new WebSocketServer({ server: this.http });
@@ -82,18 +89,23 @@ export class LocalWsTransport implements Transport {
     const host = this.opts.host;
     const port = this.bound;
 
+    const reachable = host === "0.0.0.0" ? lanAddress() ?? "127.0.0.1" : host;
+
     return {
-      joinUrl: (token) => wsUrl(host === "0.0.0.0" ? "127.0.0.1" : host, port, token),
+      joinUrl: (token) => wsUrl(reachable, port, token),
+      // The invite has to name an address other people can reach; the host's
+      // own seat should never take that trip.
+      selfUrl: (token) => wsUrl("127.0.0.1", port, token),
+      shareUrl: (token) => shareLink(`http://${reachable}:${port}`, this.opts.roomName, token),
       detail: (token) => {
         const lines: string[] = [];
-        const lan = lanAddress();
-        if (host === "0.0.0.0" && lan) {
-          lines.push(`on your network:  mpx join ${wsUrl(lan, port, token)}`);
-        }
         if (host === "127.0.0.1") {
-          lines.push(`remote teammate:  ssh -R ${port}:localhost:${port} them@host`);
-          lines.push(`no tunnel:        add --relay wss://your-relay  (see \`mpx relay --help\`)`);
+          lines.push("that link only works on this machine — for anyone else:");
+          lines.push(`  same network:  restart with --host 0.0.0.0`);
+          lines.push(`  anywhere:      restart with --relay <url>   (\`mpx relay\` runs one)`);
+          lines.push(`  or tunnel:     ssh -R ${port}:localhost:${port} them@host`);
         }
+        void token;
         return lines;
       },
     };
@@ -167,9 +179,15 @@ export class RelayTransport implements Transport {
     const hostUrl = `${base}/host?room=${encodeURIComponent(this.opts.roomName)}&protocol=${PROTOCOL_VERSION}`;
     await this.dial(hostUrl);
 
+    const wsJoin = (token: string | null) =>
+      `${base}/r/${encodeURIComponent(this.opts.roomName)}${token ? `?t=${token}` : ""}`;
+
     return {
-      joinUrl: (token) => `${base}/r/${encodeURIComponent(this.opts.roomName)}${token ? `?t=${token}` : ""}`,
-      detail: () => [`relayed through ${base} — the relay carries frames, the host still decides`],
+      joinUrl: wsJoin,
+      // Everything comes through the relay, the host's own seat included.
+      selfUrl: wsJoin,
+      shareUrl: (token) => shareLink(httpOrigin(base), this.opts.roomName, token),
+      detail: () => [`relayed through ${base} — it carries frames, the host still decides`],
     };
   }
 

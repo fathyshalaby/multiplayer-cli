@@ -28,39 +28,41 @@ room decides together what actually gets sent.
 npm install -g multiplayer-cli
 ```
 
-Requires Node 20.11+. Only the **host** needs model credentials; everyone else
-just needs to reach the host's port.
+Node 20.11+. Only the **host** needs this and a model key — everyone else can
+join from a browser with nothing installed.
 
-## Two minutes to a shared session
-
-Try the whole thing with no API key at all:
+## The whole thing
 
 ```bash
-mpx host --backend echo --policy pair
+mpx share
 ```
 
-It prints an invite:
-
 ```
-  invite your team:
-    mpx join ws://127.0.0.1:7777/?t=Kf3nQ…
+  amber-ridge-04   claude-code  ·  ~/work/api
+  prompts: majority+veto 45s   tools: claude-code's own permissions
+
+  Send this to your team:
+
+    http://192.168.1.20:7777/s/amber-ridge-04#t=Kf3nQ8vLm2
+
+    Opening it gives them a seat in the browser, or the command to join from a terminal.
 ```
 
-Open a second terminal, paste that command, and you have a two-seat room. Type a
-sentence in one; watch it appear as a *proposal* in the other; approve it with
-`/y` and watch the reply stream to both.
-
-For real work, point it at whichever CLI your team already uses:
+Paste the link in chat. Whoever clicks it lands on a page offering two ways in —
+a seat right there in the browser, or the one-line command for a terminal:
 
 ```bash
-mpx host                                # Claude via the API (default)
-mpx host --backend claude-code          # share an actual Claude Code session
-mpx host --backend codex                # OpenAI Codex
-mpx host --backend copilot              # GitHub Copilot CLI
-mpx host --backend opencode             # OpenCode
+npx multiplayer-cli join ws://192.168.1.20:7777/r/amber-ridge-04?t=Kf3nQ8vLm2
 ```
 
----
+Then type to propose, `/y` to agree. That is the whole interface.
+
+`mpx share` picks whichever coding CLI you already have — Claude Code, Codex,
+Copilot, OpenCode — and if you have none, it still runs on an offline demo
+backend so you can see how a room works. `mpx backends` shows what it found.
+
+The token lives in the link's fragment, which browsers never send to a server,
+so it stays out of access logs. Treat the link like a password.
 
 ## How it works
 
@@ -121,9 +123,9 @@ The timer is **lazy consensus** — when it expires with no objection, the
 proposal ships. Set `minYes` if you want silence to mean "not yet" instead:
 
 ```bash
-mpx host --policy team --set mode=quorum --set quorum=3 --set timeout=90s
-mpx host --policy strict --set tool.mode=owner --set autoAllow=read,write
-mpx host --policy pair --set timeout=off        # nothing moves without a vote
+mpx share --policy team --set mode=quorum --set quorum=3 --set timeout=90s
+mpx share --policy strict --set tool.mode=owner --set autoAllow=read,write
+mpx share --policy pair --set timeout=off        # nothing moves without a vote
 ```
 
 Change it mid-session (host only):
@@ -161,36 +163,34 @@ Anything that isn't a command becomes a proposal.
 
 ## Getting teammates in
 
-The host binds to `127.0.0.1` and requires a token by default.
-
-**Same machine** — just run the printed `mpx join` command.
-
-**Same network** — `mpx host --host 0.0.0.0`, then share the LAN invite it prints.
-
-**Anywhere, no inbound port** — run a relay and dial out to it:
+`mpx share` binds to your local network, so anyone on the same wifi or VPN can
+open the link. Three ways to change that:
 
 ```bash
-# once, on any box your team can reach (a small VPS is plenty)
-mpx relay --port 7788
-
-# then, on the host — nothing to open, nothing to forward
-mpx host --relay wss://relay.example.com
-#   invite your team:
-#     mpx join wss://relay.example.com/r/amber-ridge-04?t=Kf3nQ…
+mpx share --local            # this machine only
+mpx share --relay wss://…    # reachable anywhere — remembered from then on
+mpx share --open             # no token; anyone who can reach it may join
 ```
 
-The relay is a dumb pipe. It never receives the room token and cannot admit
-anyone the host would refuse — every seat still has to pass the host's own check
-end-to-end through it, and every vote is still counted by the host. What it
-*can* see is session content in the clear, so run your own and put TLS in front
-of it (`mpx relay` speaks plain `ws://`; terminate TLS with Caddy or nginx).
-It caps rooms, seats per room, and join attempts per minute.
-
-**Still fine** — an SSH tunnel, if you would rather not run anything:
+A relay is any box your team can reach — a small VPS is plenty:
 
 ```bash
-ssh -R 7777:localhost:7777 you@jumpbox     # on the host
-mpx join ws://127.0.0.1:7777/?t=…          # on the jumpbox
+mpx relay --port 7788        # once, on that box
+mpx share --relay wss://relay.example.com
+```
+
+The host dials *out* to it, so there is nothing to open or forward on your side.
+The relay is a dumb pipe: it never receives the room token and cannot admit
+anyone the host would refuse — every seat still passes the host's own check
+end-to-end through it, and every vote is still counted by the host. What it
+*can* see is session content in the clear, so run your own and put TLS in front
+(`mpx relay` speaks plain `ws://`; terminate with Caddy or nginx). It caps
+rooms, seats per room, and join attempts per minute.
+
+An SSH tunnel still works too, if you would rather run nothing:
+
+```bash
+ssh -R 7777:localhost:7777 you@jumpbox
 ```
 
 Read-only seats:
@@ -231,7 +231,7 @@ Flags change between releases. Two escape hatches mean a drifted tool is a
 command-line fix, not a version bump here:
 
 ```bash
-mpx host --backend codex --backend-bin /opt/bin/codex          --backend-arg --sandbox --backend-arg workspace-write
+mpx share --backend codex --backend-bin /opt/bin/codex          --backend-arg --sandbox --backend-arg workspace-write
 ```
 
 `--backend-bin` picks the binary; `--backend-arg` is repeatable and appended
@@ -245,11 +245,11 @@ top of it rather than compete with it.
 ```bash
 # OpenCode's server already accepts several clients on one session.
 opencode serve --port 4096
-mpx host --backend opencode --attach http://localhost:4096
+mpx share --backend opencode --attach http://localhost:4096
 
 # Continue a session that already exists, in any backend that has one.
-mpx host --backend claude-code --resume 8f3a…
-mpx host --backend codex       --resume th_abc123
+mpx share --backend claude-code --resume 8f3a…
+mpx share --backend codex       --resume th_abc123
 ```
 
 `--resume` takes whatever that tool calls a session or thread id; mpx captures
@@ -275,14 +275,32 @@ Disable with `--no-transcript`.
 
 ---
 
-## Use as a Claude Code skill
+## Use it from inside Claude Code
 
-The repo ships a skill, so inside Claude Code you can say
-*"start a multiplayer session for this repo"* or run `/multiplayer`:
+The repo ships a skill, so you can just ask:
 
 ```bash
 cp -r skills/multiplayer ~/.claude/skills/
 ```
+
+> *"share this session with my team"* — or `/multiplayer`
+
+It starts the room and hands you the link to paste.
+
+## Commands
+
+| | |
+|---|---|
+| `mpx share` | start a room and print a link to send |
+| `mpx join <link>` | take a seat — the share link or the `ws://` URL both work |
+| `mpx relay` | run a relay, so hosts need no open port |
+| `mpx serve` | run a room with no local seat |
+| `mpx backends` | which AI CLIs you can use, and which are installed |
+| `mpx policies` | how the room can decide things |
+| `mpx transcript <file>` | replay a session's audit log |
+
+`mpx host` is `mpx share` without the opinionated defaults — bind to localhost,
+no auto-detected backend, explicit flags only.
 
 ---
 
@@ -291,7 +309,8 @@ cp -r skills/multiplayer ~/.claude/skills/
 ```bash
 npm install
 npm run build
-npm test          # 102 tests: gate logic, room rules, CLI adapters, relay, live sessions
+npm test          # 117 tests: gate logic, room rules, CLI adapters, relay,
+                  # share links, and the browser seat driven in real Chromium
 ```
 
 The layout follows the seams:
@@ -307,6 +326,7 @@ src/server/server.ts  the room, wired to the session
 src/agent/profiles.ts one small profile per coding CLI: argv in, room events out
 src/agent/process.ts  the shared process driver those profiles plug into
 src/client/           connection, commands, terminal UI
+src/client/web/       the browser seat — one self-contained page, no build step
 ```
 
 Adding a CLI is a profile, not a class: build an argv, say whether output is

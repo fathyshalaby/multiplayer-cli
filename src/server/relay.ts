@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { PROTOCOL_VERSION } from "../protocol.js";
 import { id } from "../util/id.js";
+import { serveWeb } from "./web.js";
 
 export interface RelayOptions {
   host: string;
@@ -44,7 +45,11 @@ export class Relay {
   constructor(opts: RelayOptions) {
     this.opts = opts;
     this.http = createServer((req, res) => {
-      if (req.url?.startsWith("/health")) {
+      const pathname = new URL(req.url ?? "/", "http://relay").pathname;
+      // A shared link lands here. Serving the seat from the relay is what makes
+      // the link worth clicking for someone with nothing installed.
+      if (serveWeb(pathname, res)) return;
+      if (pathname.startsWith("/health")) {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({

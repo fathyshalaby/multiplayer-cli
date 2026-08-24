@@ -92,6 +92,16 @@ export class RoomServer {
     return this.info?.joinUrl(this.opts.token) ?? "";
   }
 
+  /** Where the host's own seat should connect. */
+  selfUrl(): string {
+    return this.info?.selfUrl(this.opts.token) ?? "";
+  }
+
+  /** The clickable link for chat, when the room is reachable by browser. */
+  shareUrl(): string | null {
+    return this.info?.shareUrl(this.opts.token) ?? null;
+  }
+
   inviteDetail(): string[] {
     return this.info?.detail(this.opts.token) ?? [];
   }

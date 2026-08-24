@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>multiplayer-cli</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #ffffff; --line: #e4e2dd; --ink: #1f1e1c; --dim: #75726b;
+    --accent: #3d6cd4; --ok: #2f7d4f; --no: #b4413a; --warn: #9a6b12; --model: #7b4bc4;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --panel: #1d1d22; --line: #2f2f37; --ink: #e9e8e4; --dim: #96938c;
+      --accent: #7fa6f5; --ok: #6cc48c; --no: #ef8079; --warn: #d8ab4c; --model: #b697ee;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  header {
+    border-bottom: 1px solid var(--line); padding: 10px 16px;
+    display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; background: var(--panel);
+  }
+  header .room { font-weight: 700; }
+  header .meta { color: var(--dim); font-size: 12px; }
+  header .roster { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+  .who { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  main { flex: 1; overflow-y: auto; padding: 14px 16px; }
+  .row { margin: 0 0 3px; white-space: pre-wrap; word-break: break-word; }
+  .dim { color: var(--dim); }
+  .model { border-left: 2px solid var(--model); padding-left: 10px; margin-left: 1px; }
+  .rule { color: var(--dim); font-size: 12px; margin: 14px 0 6px; }
+  .chat b { font-weight: 600; }
+  .card {
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: var(--radius); background: var(--panel);
+    padding: 10px 12px; margin: 10px 0;
+  }
+  .card.tool { border-left-color: var(--warn); }
+  .card.done { opacity: .6; border-left-color: var(--line); }
+  .card .head { font-size: 12px; color: var(--dim); margin-bottom: 5px; }
+  .card .body { white-space: pre-wrap; word-break: break-word; }
+  .tally { font-size: 12px; color: var(--dim); margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btns { display: flex; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-size: 12px; padding: 5px 11px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer;
+  }
+  button:hover { border-color: var(--dim); }
+  button.yes { color: var(--ok); } button.no { color: var(--no); }
+  button:disabled { opacity: .45; cursor: default; }
+  footer { border-top: 1px solid var(--line); padding: 10px 16px; background: var(--panel); }
+  .inputrow { display: flex; gap: 8px; align-items: center; }
+  .prompt { color: var(--dim); white-space: nowrap; }
+  input[type=text] {
+    flex: 1; font: inherit; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  .hint { font-size: 11px; color: var(--dim); margin-top: 6px; }
+  .gate { max-width: 620px; margin: 8vh auto; padding: 0 20px; }
+  .gate h1 { font-size: 19px; margin: 0 0 6px; }
+  .gate p { color: var(--dim); }
+  .cmd {
+    display: flex; gap: 8px; align-items: center; background: var(--panel);
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin: 14px 0;
+  }
+  .cmd code { flex: 1; overflow-x: auto; white-space: nowrap; }
+  .ok { color: var(--ok); } .bad { color: var(--no); } .warn { color: var(--warn); }
+</style>
+</head>
+<body>
+<div id="gate" class="gate">
+  <h1>Join <span id="gate-room" class="ok"></span></h1>
+  <p>A shared AI session. Everyone sees the same transcript, and nothing is sent to the model until the room agrees.</p>
+
+  <p style="margin-top:22px"><b>In your terminal</b> — the full experience:</p>
+  <div class="cmd"><code id="cmd"></code><button id="copy">copy</button></div>
+
+  <p><b>Or take a seat right here.</b> You can read, propose, and vote from this page.</p>
+  <div class="btns">
+    <input type="text" id="gate-name" placeholder="your name" style="max-width:200px" />
+    <button id="enter">Join in the browser</button>
+  </div>
+  <p class="hint" id="gate-err"></p>
+</div>
+
+<header id="chrome" hidden>
+  <span class="room" id="room">—</span>
+  <span class="meta" id="meta"></span>
+  <span class="roster" id="roster"></span>
+</header>
+<main id="log" hidden></main>
+<footer id="foot" hidden>
+  <div class="inputrow">
+    <span class="prompt" id="me">you ❯</span>
+    <input type="text" id="input" placeholder="type to propose something to the room…" autocomplete="off" />
+    <button id="send">Propose</button>
+  </div>
+  <div class="hint">Enter proposes. <code>/y</code> approve · <code>/n reason</code> veto · <code>/say</code> talk to the room only · <code>/stop</code> interrupt</div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  const PROTOCOL = 1;
+  // The token lives in the fragment, so it is never sent to the relay or host
+  // as part of an HTTP request and never lands in an access log.
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const token = hash.get("t") || "";
+  const room = decodeURIComponent(location.pathname.split("/").pop() || "");
+  const wsBase = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+  const wsUrl = wsBase + "/r/" + encodeURIComponent(room) + (token ? "?t=" + encodeURIComponent(token) : "");
+  const joinCmd = "npx multiplayer-cli join " + wsUrl;
+
+  const $ = (id) => document.getElementById(id);
+  $("gate-room").textContent = room || "this room";
+  $("cmd").textContent = joinCmd;
+  $("copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(joinCmd); $("copy").textContent = "copied"; }
+    catch { $("copy").textContent = "select it"; }
+    setTimeout(() => ($("copy").textContent = "copy"), 1600);
+  };
+
+  let saved = "";
+  try { saved = localStorage.getItem("mpx.name") || ""; } catch (e) {}
+  $("gate-name").value = saved;
+  $("gate-name").addEventListener("keydown", (e) => { if (e.key === "Enter") enter(); });
+  $("enter").onclick = enter;
+
+  const PALETTE = ["#3d6cd4","#a24fb0","#2f7d4f","#9a6b12","#2b7f95","#b4413a","#6b4fd0","#3f7d2f"];
+  let ws = null, me = null, snap = null;
+  const cards = new Map();
+
+  function enter() {
+    const name = ($("gate-name").value || "").trim() || "guest";
+    try { localStorage.setItem("mpx.name", name); } catch (e) {}
+    $("gate-err").textContent = "connecting…";
+    connect(name);
+  }
+
+  function connect(name) {
+    ws = new WebSocket(wsUrl);
+    ws.onopen = () => ws.send(JSON.stringify({ t: "hello", name: name, protocol: PROTOCOL }));
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      handle(m);
+    };
+    ws.onerror = () => { $("gate-err").textContent = "could not reach the room."; };
+    ws.onclose = (e) => {
+      if (!me) { $("gate-err").textContent = "the room refused the connection" + (e.reason ? " — " + e.reason : "") + "."; return; }
+      line("left the room" + (e.reason ? " (" + e.reason + ")" : ""), "bad");
+      setInput(false);
+    };
+  }
+
+  function send(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
+
+  function show() {
+    $("gate").hidden = true;
+    for (const el of ["chrome", "log", "foot"]) $(el).hidden = false;
+    $("input").focus();
+  }
+
+  function setInput(on) { $("input").disabled = !on; $("send").disabled = !on; }
+
+  function color(p) { return PALETTE[(p && p.color != null ? p.color : 0) % PALETTE.length]; }
+  function nameOf(id) {
+    const p = snap && snap.participants.find((x) => x.id === id);
+    return p ? '<span style="color:' + color(p) + '">' + esc(p.name) + "</span>" : "someone";
+  }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  const log = $("log");
+  function atBottom() { return log.scrollHeight - log.scrollTop - log.clientHeight < 80; }
+  function pin(stick) { if (stick) log.scrollTop = log.scrollHeight; }
+  function el(tag, cls, html) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (html != null) n.innerHTML = html;
+    return n;
+  }
+  function push(node) { const stick = atBottom(); log.appendChild(node); pin(stick); return node; }
+  function line(text, cls) { return push(el("div", "row " + (cls || "dim"), esc(text))); }
+  function rule(text) { return push(el("div", "rule", esc(text))); }
+
+  /* Streamed model output is appended to one growing block so it reads as a
+     single reply rather than a thousand fragments. */
+  let stream = null;
+  function delta(text) {
+    const stick = atBottom();
+    if (!stream) { stream = el("div", "row model", ""); log.appendChild(stream); }
+    stream.textContent += text;
+    pin(stick);
+  }
+  function endStream() { stream = null; }
+
+  function renderRoster() {
+    const box = $("roster");
+    box.innerHTML = "";
+    if (!snap) return;
+    for (const p of snap.participants) {
+      const marks = [];
+      if (p.role === "owner") marks.push("host");
+      if (p.role === "observer") marks.push("observer");
+      if (me && p.id === me.id) marks.push("you");
+      box.appendChild(
+        el("span", "who", '<span class="dot" style="color:' + color(p) + '"></span>' + esc(p.name) +
+          (marks.length ? ' <span class="dim">' + esc(marks.join(" ")) + "</span>" : ""))
+      );
+    }
+  }
+
+  function renderMeta() {
+    if (!snap) return;
+    $("room").textContent = snap.name;
+    const g = snap.policy.prompt;
+    let gate = g.mode + (g.mode === "quorum" ? "(" + g.quorum + ")" : "") + (g.veto && g.mode !== "consensus" ? "+veto" : "");
+    if (g.autoApproveMs) gate += " " + Math.round(g.autoApproveMs / 1000) + "s";
+    $("meta").textContent = snap.agent.backend + (snap.agent.model ? "/" + snap.agent.model : "") +
+      "  ·  " + gate + (snap.agent.state !== "idle" ? "  ·  " + snap.agent.state : "");
+  }
+
+  function tallyText(t, deadline) {
+    const bits = [t.yes + "/" + t.electorate + " ✓"];
+    if (t.no) bits.push(t.no + " ✗");
+    if (t.pending && t.pending.length) bits.push(t.pending.length + " pending");
+    if (deadline && t.decision === "pending") {
+      const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      bits.push(left + "s left");
+    }
+    return bits.join(" · ");
+  }
+
+  function card(p, t) {
+    let c = cards.get(p.id);
+    if (!c) {
+      c = el("div", "card" + (p.kind === "tool" ? " tool" : ""));
+      c.appendChild(el("div", "head"));
+      c.appendChild(el("div", "body"));
+      c.appendChild(el("div", "tally"));
+      const btns = el("div", "btns");
+      const yes = el("button", "yes", "Approve");
+      const no = el("button", "no", "Veto");
+      yes.onclick = () => send({ t: "vote", proposalId: p.id, vote: "yes" });
+      no.onclick = () => {
+        const why = prompt("Why not? (optional — it is recorded with your veto)") || "";
+        send({ t: "vote", proposalId: p.id, vote: "no", comment: why.trim() || undefined });
+      };
+      btns.appendChild(yes); btns.appendChild(no);
+      c.appendChild(btns);
+      cards.set(p.id, c);
+      push(c);
+    }
+    const kind = p.kind === "tool" ? "wants to run" : "proposes";
+    c.querySelector(".head").innerHTML =
+      "<b>" + esc(p.authorName) + "</b> " + kind + " <b>" + esc(p.id) + "</b>";
+    c.querySelector(".body").textContent = p.text;
+
+    const open = p.status === "open";
+    c.classList.toggle("done", !open);
+    const votes = Object.keys(p.votes || {})
+      .map((id) => {
+        const v = p.votes[id];
+        const mark = v.vote === "yes" ? '<span class="ok">✓</span>' : v.vote === "no" ? '<span class="bad">✗</span>' : "·";
+        return mark + nameOf(id);
+      }).join(" ");
+    c.querySelector(".tally").innerHTML =
+      esc(open ? tallyText(t, p.deadline) : (p.status + " — " + (p.resolution || ""))) + (votes ? "  " + votes : "");
+    for (const b of c.querySelectorAll("button")) b.disabled = !open;
+    return c;
+  }
+
+  function handle(m) {
+    switch (m.t) {
+      case "welcome":
+        me = m.you; snap = m.room; show();
+        $("me").textContent = me.name + " ❯";
+        $("me").style.color = color(me);
+        renderMeta(); renderRoster();
+        rule("joined " + snap.name);
+        for (const p of snap.proposals) if (p.status === "open") card(p, { yes: 0, no: 0, pending: [], electorate: snap.participants.length, decision: "pending" });
+        return;
+      case "snapshot": snap = m.room; renderMeta(); renderRoster(); return;
+      case "presence":
+        if (snap) snap.participants = m.participants;
+        if (m.joined) line("→ " + m.joined + " joined", "ok");
+        if (m.left) line("← " + m.left + " left");
+        renderRoster();
+        return;
+      case "proposal": endStream(); card(m.proposal, m.tally); return;
+      case "resolved": endStream(); card(m.proposal, m.tally); return;
+      case "turnStart": endStream(); rule("── sending to the model (" + m.contributors.join(", ") + ") ──"); return;
+      case "delta": if (m.kind === "text") delta(m.text); return;
+      case "toolResult": endStream(); line((m.ok ? "✓ " : "✗ ") + "tool  " + m.preview.split("\n")[0]); return;
+      case "turnEnd":
+        endStream();
+        rule("── turn complete" + (m.error ? " — " + m.error : "") + " ──");
+        return;
+      case "agent": if (snap) { snap.agent = m.status; renderMeta(); } return;
+      case "chat":
+        push(el("div", "row chat", "💬 " + nameOf(m.fromId) + ": " + esc(m.text)));
+        return;
+      case "policy": if (snap) { snap.policy = m.policy; renderMeta(); } line("⚙ " + m.byName + " changed the room's rules", "warn"); return;
+      case "notice": line("· " + m.text, m.level === "error" ? "bad" : m.level === "warn" ? "warn" : "dim"); return;
+      case "error": line("✕ " + m.text, "bad"); return;
+    }
+  }
+
+  /* The same slash commands as the terminal, so instructions transfer. */
+  function submit() {
+    const raw = $("input").value.trim();
+    if (!raw) return;
+    $("input").value = "";
+    if (!raw.startsWith("/")) return send({ t: "propose", text: raw });
+
+    const sp = raw.indexOf(" ");
+    const cmd = (sp < 0 ? raw.slice(1) : raw.slice(1, sp)).toLowerCase();
+    const rest = sp < 0 ? "" : raw.slice(sp + 1).trim();
+    const openIds = snap ? snap.proposals.filter((p) => p.status === "open").map((p) => p.id) : [];
+    const m = /^(#?\d+)\s*(.*)$/.exec(rest);
+    const id = m ? (m[1].startsWith("#") ? m[1] : "#" + m[1]) : openIds[openIds.length - 1];
+    const tail = m ? m[2].trim() : rest;
+
+    if (cmd === "y" || cmd === "yes" || cmd === "ok") return send({ t: "vote", proposalId: id, vote: "yes" });
+    if (cmd === "n" || cmd === "no" || cmd === "veto")
+      return send({ t: "vote", proposalId: id, vote: "no", comment: tail || undefined });
+    if (cmd === "abstain") return send({ t: "vote", proposalId: id, vote: "abstain" });
+    if (cmd === "amend") return send({ t: "amend", proposalId: id, text: tail });
+    if (cmd === "withdraw") return send({ t: "withdraw", proposalId: id });
+    if (cmd === "say" || cmd === "chat") return send({ t: "chat", text: rest });
+    if (cmd === "stop") return send({ t: "interrupt" });
+    if (cmd === "me") return send({ t: "rename", name: rest });
+    line("✕ unknown command /" + cmd, "bad");
+  }
+
+  $("send").onclick = submit;
+  $("input").addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+
+  // Keep countdowns honest without a message from the server.
+  setInterval(() => {
+    if (!snap) return;
+    for (const p of snap.proposals || []) {
+      if (p.status === "open" && p.deadline && cards.has(p.id)) {
+        const t = cards.get(p.id).querySelector(".tally");
+        const left = Math.max(0, Math.ceil((p.deadline - Date.now()) / 1000));
+        t.innerHTML = t.innerHTML.replace(/\d+s left/, left + "s left");
+      }
+    }
+  }, 1000);
+})();
+</script>
+</body>
+</html>

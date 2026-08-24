@@ -1,21 +1,35 @@
 {
   "name": "multiplayer-cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Make your AI sessions multiplayer: a shared terminal AI session your team prompts together, with group consent on every turn.",
   "type": "module",
   "bin": {
     "mpx": "./dist/src/cli.js",
     "multiplayer": "./dist/src/cli.js"
   },
-  "files": ["dist", "skills", "README.md"],
-  "engines": { "node": ">=20.11" },
+  "files": [
+    "dist",
+    "skills",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-web.mjs",
     "prepare": "npm run build",
     "test": "npm run build && node --test dist/test/*.test.js",
     "start": "npm run build && node dist/src/cli.js"
   },
-  "keywords": ["cli", "ai", "claude", "multiplayer", "collaboration", "pair-programming", "tui"],
+  "keywords": [
+    "cli",
+    "ai",
+    "claude",
+    "multiplayer",
+    "collaboration",
+    "pair-programming",
+    "tui"
+  ],
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
@@ -25,5 +39,8 @@
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.12",
     "typescript": "^5.6.0"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.50.0"
   }
 }
