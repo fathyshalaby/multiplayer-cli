@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+- Relicensed to **MIT**. The previous release shipped PolyForm Noncommercial;
+  this drops the noncommercial restriction entirely, so commercial use needs no
+  permission. Attribution is the only condition, and there is still no warranty
+  or liability.
+
 ## 0.5.0
 
 - Account pooling is now **experimental and opt-in** on both sides — `--pool` on
@@ -7,8 +14,7 @@
   account and the room says nothing about runners at all.
 - `--help` is two tiers: the few lines almost everyone needs, and
   `mpx help --all` for the rest.
-- Licensed under PolyForm Noncommercial 1.0.0. Free for noncommercial use;
-  commercial use needs the licensor's permission.
+- Licensed under PolyForm Noncommercial 1.0.0 (superseded by MIT in 0.5.1).
 - Full documentation under [`docs/`](./docs).
 
 ## 0.4.0

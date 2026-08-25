@@ -22,7 +22,7 @@ import { normalizeJoinUrl } from "./util/url.js";
 import { detectBackend, installedBackends } from "./util/detect.js";
 import * as c from "./util/ansi.js";
 
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));

@@ -2,9 +2,8 @@
 
 Thanks for looking. Issues and pull requests are welcome.
 
-Please note the [licence](./LICENSE): this project is free for noncommercial
-use, and commercial use needs the licensor's permission. By contributing you
-agree your contribution is licensed on the same terms.
+This project is [MIT licensed](./LICENSE). By contributing you agree your
+contribution is licensed on the same terms.
 
 ## Getting set up
 
