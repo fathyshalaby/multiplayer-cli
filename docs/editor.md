@@ -6,23 +6,21 @@ same encryption, same votes.
 
 ## Install
 
-The extension is published to **Open VSX**, which is what VS Code forks use:
+Works in **VS Code, Cursor, VSCodium and Windsurf**. This breadth is the point:
+Live Share is licensed to official Microsoft builds and has been blocked in
+forks since 2025, so a Cursor user has had no equivalent.
 
-```
-Extensions → search "multiplayer" → Install
-```
-
-Works in **VS Code, Cursor, VSCodium and Windsurf**. This is deliberate: Live
-Share is licensed to official Microsoft builds and has been blocked in forks
-since 2025, so a Cursor user has had no equivalent.
-
-To install a build yourself:
+It is not on a registry yet. Install the `.vsix` — either the one CI attaches
+to every run, or one you build:
 
 ```bash
-node scripts/build-extension.mjs
+npm run build:extension
 cd extension && npx vsce package --no-dependencies --out multiplayer-cli.vsix
-code --install-extension multiplayer-cli.vsix     # or: cursor --install-extension …
+cursor --install-extension multiplayer-cli.vsix   # or code / codium / windsurf
 ```
+
+When it is published it will go to **Open VSX**, which is the registry those
+editors actually use.
 
 ## What it does
 

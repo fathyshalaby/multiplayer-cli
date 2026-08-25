@@ -7,11 +7,15 @@ This is a seat in a [multiplayer-cli](https://github.com/fathyshalaby/multiplaye
 room, alongside the terminal client and the browser seat. It speaks the same
 protocol and the same end-to-end encryption.
 
+Not on a registry yet — install the `.vsix` from a CI run, or build one with
+`npm run build:extension`.
+
 ## Why this exists
 
 Live Share is licensed to official Microsoft builds only, and since 2025 has
 been actively blocked in VS Code forks — so Cursor, VSCodium and Windsurf cannot
-use it. This ships on Open VSX and works in all of them.
+use it. This targets Open VSX — the registry those editors actually use — and
+works in all of them.
 
 It also does a different thing. Live Share shares a keyboard. This shares a
 *decision*: what the AI is asked, and whether it may act.

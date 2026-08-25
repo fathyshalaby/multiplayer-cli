@@ -8,12 +8,13 @@
   extension's bundle. It now loads on demand, is an optional peer dependency,
   and a missing install produces the command to fix it. The extension bundle
   fell from 799KB to 258KB, and the CLI's only runtime dependency is `ws`.
-
 - **An editor seat.** A VS Code extension — working in **Cursor, VSCodium and
   Windsurf** too — that joins or hosts a room from the activity bar, with
   Approve and Veto on whatever is pending and the model's reply streaming in
-  place. Published to Open VSX, since Live Share is licensed to official
-  Microsoft builds and blocked in forks.
+  place. Not yet on a registry: build it with `npm run build:extension` and
+  install the `.vsix`, or take the one CI attaches to each run. It targets
+  Open VSX rather than the VS Code Marketplace, since Live Share is licensed
+  to official Microsoft builds and blocked in forks.
 - The extension host owns the connection and imports the same client, protocol
   and crypto the terminal uses, so an editor seat is the same code with a
   different view rather than a reimplementation.

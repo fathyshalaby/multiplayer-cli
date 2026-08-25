@@ -153,13 +153,15 @@ Details in [Deciding together](./docs/deciding.md).
 There is an extension for **VS Code, Cursor, VSCodium and Windsurf** — the same
 seat, in a panel, with Approve and Veto on what is pending.
 
-```
-Extensions → search "multiplayer" → Install
+```bash
+npm run build:extension
+cd extension && npx vsce package --no-dependencies --out multiplayer-cli.vsix
+cursor --install-extension multiplayer-cli.vsix   # or code / codium
 ```
 
-It ships on Open VSX on purpose: Live Share is licensed to official Microsoft
-builds and blocked in forks, so Cursor has had no equivalent. See
-[The editor seat](./docs/editor.md).
+It targets Open VSX rather than the VS Code Marketplace: Live Share is licensed
+to official Microsoft builds and blocked in forks, so Cursor has had no
+equivalent. See [The editor seat](./docs/editor.md).
 
 ## Use it from inside Claude Code
 
