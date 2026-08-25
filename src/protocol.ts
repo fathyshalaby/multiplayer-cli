@@ -9,14 +9,15 @@
 /**
  * 2 made room traffic end-to-end encrypted and stopped the token travelling in
  * the URL. 3 replaced the token-derived key with an ephemeral ECDH handshake,
- * so a leaked link cannot decrypt traffic recorded earlier. Older clients
- * cannot talk to a v3 room.
+ * so a leaked link cannot decrypt traffic recorded earlier. 4 added lanes:
+ * proposals carry a lane count, and output carries the lane it came from.
+ * Older clients cannot talk to a v4 room.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 export type Role = "owner" | "member" | "observer";
 export type Vote = "yes" | "no" | "abstain";
-export type ProposalKind = "prompt" | "tool";
+export type ProposalKind = "prompt" | "tool" | "lane";
 export type ProposalStatus =
   | "open"
   | "approved"
@@ -57,6 +58,8 @@ export interface RoomPolicy {
   prompt: GatePolicy;
   /** Gate applied to tool calls the model wants to make. */
   tool: GatePolicy;
+  /** Gate applied to landing a lane's work in the repository. */
+  lane: GatePolicy;
   /** Tool risk levels that skip the vote entirely. */
   autoAllowToolRisks: ToolRisk[];
   /** Who may interrupt a running turn. */
@@ -101,6 +104,10 @@ export interface Proposal {
   authorName: string;
   text: string;
   tool?: ToolRequest;
+  /** On a prompt: run it this many times in parallel lanes instead of once. */
+  race?: number;
+  /** On a lane proposal: which lane landing this would merge. */
+  lane?: string;
   createdAt: number;
   /** Wall-clock ms after which the timer decides. `null` = no timer. */
   deadline: number | null;
@@ -123,6 +130,42 @@ export interface Tally {
   need: number;
   decision: "pending" | "approve" | "reject";
   reason: string;
+}
+
+/**
+ * How a parallel attempt ended.
+ *
+ * `done` means it produced a commit the room can vote on; `empty` means the
+ * agent finished without changing anything, which is an outcome, not a fault.
+ */
+export type LaneState = "running" | "done" | "empty" | "failed" | "landed" | "discarded";
+
+/**
+ * One attempt at the same prompt, in its own git worktree.
+ *
+ * Racing is the part the room cannot do by talking: several agents try the
+ * same task at once on separate branches, and the room votes on which result
+ * is the one that lands in the repository.
+ */
+export interface LaneInfo {
+  /** Short and stable for a session: A, B, C. */
+  id: string;
+  turnId: string;
+  branch: string;
+  /** The lane's own checkout, so a seat can go and look at it. */
+  dir: string;
+  backend: string;
+  state: LaneState;
+  /** `3 files changed, +42 -7`, once the lane has committed. */
+  summary: string;
+  /** Per-file diffstat, for reading before voting. */
+  detail: string;
+  commit: string | null;
+  error?: string;
+  /** The proposal the room votes on to land this lane, once it has one. */
+  proposalId: string | null;
+  startedAt: number;
+  endedAt: number | null;
 }
 
 /**
@@ -174,6 +217,10 @@ export interface RoomSnapshot {
   runners: RunnerInfo[];
   /** Whoever ran the last turn, and will run the next one unless they cannot. */
   activeRunnerId: string | null;
+  /** Parallel attempts from the current or most recent race. */
+  lanes: LaneInfo[];
+  /** Lanes a bare `/race` opens. 0 when this room cannot race at all. */
+  laneCount: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -182,7 +229,8 @@ export interface RoomSnapshot {
 
 export type ClientMessage =
   | { t: "hello"; name: string; token?: string; protocol: number; observer?: boolean }
-  | { t: "propose"; text: string }
+  /* `race` runs the prompt in that many parallel lanes; 0 means the room's default. */
+  | { t: "propose"; text: string; race?: number }
   | { t: "vote"; proposalId: string; vote: Vote; comment?: string }
   | { t: "amend"; proposalId: string; text: string }
   | { t: "withdraw"; proposalId: string }
@@ -192,6 +240,8 @@ export type ClientMessage =
   | { t: "setPolicy"; patch: unknown }
   | { t: "rename"; name: string }
   | { t: "passMic"; toId: string }
+  /* Change how many lanes a bare `/race` opens (host only). */
+  | { t: "setLanes"; count: number }
   | { t: "sync" }
   | { t: "ping" }
   /* A seat offering its own machine and subscription to the room. */
@@ -224,14 +274,15 @@ export type ServerMessage =
   | { t: "resolved"; proposal: Proposal; tally: Tally }
   | { t: "queued"; proposalIds: string[] }
   | { t: "turnStart"; turnId: string; prompt: string; contributors: string[] }
-  | { t: "delta"; turnId: string; kind: "text" | "thinking"; text: string }
-  | { t: "toolResult"; turnId: string; toolUseId: string; ok: boolean; preview: string }
+  | { t: "delta"; turnId: string; kind: "text" | "thinking"; text: string; lane?: string }
+  | { t: "toolResult"; turnId: string; toolUseId: string; ok: boolean; preview: string; lane?: string }
   | { t: "turnEnd"; turnId: string; stopReason: string; usage?: Record<string, number>; error?: string }
   | { t: "agent"; status: AgentStatus }
   | { t: "chat"; fromId: string; fromName: string; text: string; at: number }
   | { t: "policy"; policy: RoomPolicy; byName: string }
   | { t: "notice"; level: "info" | "warn" | "error"; text: string }
   | { t: "runners"; runners: RunnerInfo[]; activeId: string | null }
+  | { t: "lanes"; lanes: LaneInfo[]; laneCount: number }
   /* Sent only to the seat that is being asked to run this turn. */
   | { t: "runTurn"; turnId: string; prompt: string }
   | { t: "runCancel"; turnId: string }

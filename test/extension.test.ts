@@ -51,6 +51,8 @@ function snapshotMsg(): ServerMessage {
       turnCount: 0,
       runners: [],
       activeRunnerId: null,
+    lanes: [],
+    laneCount: 0,
     },
   };
 }

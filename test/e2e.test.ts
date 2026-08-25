@@ -84,6 +84,8 @@ async function startRoom(preset: string, opts: Partial<{ token: string | null }>
     resume: null,
     attach: null,
     pool: false,
+    lanes: 0,
+    laneSetup: null,
     transcriptPath: null,
     backendFactory: () => backend,
   });
@@ -377,7 +379,8 @@ test("lazy consensus ships the prompt when nobody objects in time", async (t) =>
     transport: timerTransport, roomName: "timer", token: null, policy,
     cwd: process.cwd(), backend: "echo", model: "", maxTokens: 100,
     showThinking: false, systemPromptExtra: "", backendBin: "", backendArgs: [],
-    permissionMode: "acceptEdits", resume: null, attach: null, pool: false, transcriptPath: null,
+    permissionMode: "acceptEdits", resume: null, attach: null, pool: false,
+    lanes: 0, laneSetup: null, transcriptPath: null,
     backendFactory: () => backend,
   });
   await server.listen();

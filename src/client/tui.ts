@@ -1,6 +1,7 @@
 import { createInterface, type Interface } from "node:readline";
 import { clearLine, cursorTo } from "node:readline";
 import type {
+  LaneInfo,
   Participant,
   Proposal,
   RoomSnapshot,
@@ -41,6 +42,9 @@ export class Tui {
   private streamTurn: string | null = null;
   private thinkingOpen = false;
   private lastOpenProposal = "";
+  /** Characters each lane has produced, for the one-line race heartbeat. */
+  private laneChars = new Map<string, number>();
+  private lastLaneTick = 0;
   private tty: boolean;
   private width: number;
 
@@ -240,10 +244,19 @@ export class Tui {
       }
 
       case "delta":
+        // Lane output is not interleaved into the log: three agents writing at
+        // once is unreadable as a single stream. The room watches a heartbeat
+        // and judges the diffs, which is what it is going to vote on anyway.
+        if (msg.lane) return this.laneProgress(msg.lane, msg.kind === "text" ? msg.text.length : 0);
         this.appendStream(msg.text, msg.kind);
         return;
 
+      case "lanes":
+        this.onLanes(msg.lanes, msg.laneCount);
+        return;
+
       case "toolResult": {
+        if (msg.lane) return;
         this.flushStream();
         const mark = msg.ok ? c.green("✓") : c.red("✗");
         this.print(c.dim(`  ${mark} tool  ${msg.preview.split("\n")[0]}`));
@@ -253,6 +266,11 @@ export class Tui {
       case "turnEnd": {
         this.flushStream();
         this.thinkingOpen = false;
+        if (msg.stopReason === "lanes") {
+          this.laneChars.clear();
+          this.printLanes();
+          return;
+        }
         const bits: string[] = [];
         if (msg.stopReason !== "end_turn") bits.push(msg.stopReason);
         if (msg.usage?.output_tokens) bits.push(`${msg.usage.output_tokens} out`);
@@ -314,13 +332,80 @@ export class Tui {
     }
   }
 
+  /* ---------------------------------------------------------------- */
+  /* lanes                                                             */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * A heartbeat rather than a transcript.
+   *
+   * While a race runs there is nothing to decide yet, so the room needs one
+   * thing only: reassurance that all the lanes are alive and roughly how far
+   * along they are. One throttled line does that without drowning the log.
+   */
+  private laneProgress(lane: string, chars: number): void {
+    this.laneChars.set(lane, (this.laneChars.get(lane) ?? 0) + chars);
+    const now = Date.now();
+    if (now - this.lastLaneTick < LANE_TICK_MS) return;
+    this.lastLaneTick = now;
+    const bits = [...this.laneChars.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([id, n]) => `${c.cyan(id)} ${c.dim(kchars(n))}`);
+    this.writeRaw([c.dim("  ┄ lanes  ") + bits.join(c.dim("   "))]);
+  }
+
+  private onLanes(lanes: LaneInfo[], laneCount: number): void {
+    if (!this.room) return;
+    const before = new Map(this.room.lanes.map((l) => [l.id, l.state]));
+    this.room.lanes = lanes;
+    this.room.laneCount = laneCount;
+    for (const lane of lanes) {
+      if (before.get(lane.id) === lane.state) continue;
+      if (lane.state === "running") continue;
+      this.print(`  ${laneMark(lane)} ${c.bold(`lane ${lane.id}`)} ${laneSummary(lane)}`);
+    }
+    this.redraw();
+  }
+
+  private printLanes(): void {
+    const lanes = this.room?.lanes ?? [];
+    if (!lanes.length) {
+      const n = this.room?.laneCount ?? 0;
+      return this.print(
+        c.dim(n ? `  no lanes yet — /race <prompt> opens ${n}` : "  racing is off in this room"),
+      );
+    }
+    this.print(
+      "",
+      c.dim(`  ${lanes.length} lane${lanes.length === 1 ? "" : "s"}`),
+      ...lanes.flatMap((l) => [
+        `    ${laneMark(l)} ${c.bold(l.id)}  ${laneSummary(l)}`,
+        ...(l.detail ? c.wrapText(l.detail, this.width - 10, "        ").map((x) => c.dim(x)) : []),
+        ...(l.branch ? [c.dim(`        ${l.branch}`)] : []),
+      ]),
+      "",
+    );
+  }
+
   private onProposal(p: Proposal, t: Tally, event: "new" | "vote" | "amend"): void {
     this.trackProposal(p);
     const tag = this.color({ color: this.colorFor(p.authorId) });
 
     if (event === "new") {
+      if (p.kind === "lane") {
+        const lane = this.room?.lanes.find((l) => l.id === p.lane);
+        this.print(
+          "",
+          `  ${c.green("⚑")} ${c.bold(p.id)} land lane ${c.bold(p.lane ?? "?")}` +
+            c.dim(`  ${lane?.summary ?? ""}`),
+          ...(lane?.detail ? c.wrapText(lane.detail, this.width - 10, "      ").map((x) => c.dim(x)) : []),
+          ...(lane?.dir ? [c.dim(`      look: ${lane.dir}`)] : []),
+          this.voteLine(p, t),
+        );
+        return;
+      }
       const kindMark = p.kind === "tool" ? c.yellow("⚙ tool") : c.cyan("▸");
-      const head = `  ${kindMark} ${tag(p.authorName)} proposes ${c.bold(p.id)}`;
+      const head = `  ${kindMark} ${tag(p.authorName)} proposes ${c.bold(p.id)}${p.race ? c.dim(`  (race, ${p.race} lanes)`) : ""}`;
       const body = c.wrapText(p.text, this.width - 8, "      ");
       this.print("", head, ...body.map((l) => (p.kind === "tool" ? c.yellow(l) : l)), this.voteLine(p, t));
       return;
@@ -361,7 +446,11 @@ export class Tui {
       p.status === "approved" || p.status === "sent"
         ? p.kind === "tool"
           ? "tool approved"
-          : "queued for the model"
+          : p.kind === "lane"
+            ? `landing lane ${p.lane}`
+            : p.race
+              ? `racing in ${p.race} lanes`
+              : "queued for the model"
         : p.status;
     this.print(`  ${mark} ${c.bold(p.id)} ${verb}` + c.dim(`  — ${p.resolution ?? t.reason}`));
   }
@@ -439,6 +528,7 @@ export class Tui {
           `  tools      ${describeGate(r.policy.tool)}  auto-allow: ${r.policy.autoAllowToolRisks.join(",") || "none"}`,
           `  interrupt  ${r.policy.interrupt}`,
           `  turns      ${r.turnCount}   queued: ${r.queued.length}`,
+          `  lanes      ${r.laneCount ? `${describeGate(r.policy.lane)} · /race opens ${r.laneCount}` : "off (not a git repository)"}`,
           `  transcript ${r.transcriptPath ?? "(off)"}`,
         );
         this.printRunners();
@@ -459,6 +549,9 @@ export class Tui {
         );
         return;
       }
+      case "lanes":
+        this.printLanes();
+        return;
       case "transcript":
         this.print(c.dim(`  transcript: ${this.room?.transcriptPath ?? "(off)"}`));
         return;
@@ -551,4 +644,46 @@ export class Tui {
     this.flushStream();
     this.rl.close();
   }
+}
+
+/** How often the race heartbeat is allowed to print. */
+const LANE_TICK_MS = 4000;
+
+function laneMark(l: LaneInfo): string {
+  switch (l.state) {
+    case "running":
+      return c.cyan("▸");
+    case "done":
+      return c.green("✓");
+    case "landed":
+      return c.green("⚑");
+    case "empty":
+      return c.gray("·");
+    case "discarded":
+      return c.gray("✗");
+    default:
+      return c.red("✗");
+  }
+}
+
+function laneSummary(l: LaneInfo): string {
+  switch (l.state) {
+    case "running":
+      return c.dim("running");
+    case "empty":
+      return c.dim("finished without changing anything");
+    case "failed":
+      return c.red(l.error ?? "failed");
+    case "landed":
+      return c.green(`landed — ${l.summary}`);
+    case "discarded":
+      return c.dim(`not taken — ${l.summary} · ${l.branch}`);
+    default:
+      return `${l.summary}${l.error ? c.dim(`  (finished early: ${l.error})`) : ""}`;
+  }
+}
+
+/** `1.2k` rather than `1234`: the number is a pulse, not a measurement. */
+function kchars(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }

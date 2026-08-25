@@ -1,4 +1,4 @@
-import type { Participant, Proposal, RoomSnapshot, ServerMessage, Tally } from "../protocol.js";
+import type { LaneInfo, Participant, Proposal, RoomSnapshot, ServerMessage, Tally } from "../protocol.js";
 import { describeGate } from "../core/policy.js";
 import { renderTally } from "../core/gate.js";
 
@@ -47,6 +47,10 @@ export interface ViewState {
   shareUrl: string;
   participants: Participant[];
   proposals: ProposalCard[];
+  /** Parallel attempts from the current or most recent race. */
+  lanes: LaneInfo[];
+  /** How many lanes a bare race opens; 0 when this room cannot race. */
+  laneCount: number;
   log: LogEntry[];
 }
 
@@ -83,6 +87,7 @@ export class RoomView {
     return {
       ...this.state,
       participants: [...this.state.participants],
+      lanes: [...this.state.lanes],
       proposals: this.order.map((id) => this.cards.get(id)!).filter(Boolean).reverse(),
       log: this.state.log.slice(-MAX_LOG),
     };
@@ -128,8 +133,16 @@ export class RoomView {
         this.note("turn", `sending to the model (${msg.contributors.join(", ")})`);
         return;
 
+      case "lanes":
+        this.state.lanes = msg.lanes;
+        this.state.laneCount = msg.laneCount;
+        return;
+
       case "delta": {
         if (msg.kind !== "text") return;
+        // A lane's output belongs to its lane, not to the room's transcript:
+        // several agents writing at once would shred the reply in progress.
+        if (msg.lane) return;
         // Append to the reply in progress rather than making a new entry per
         // token, or the panel becomes thousands of one-word paragraphs.
         const last = this.state.log[this.state.log.length - 1];
@@ -143,10 +156,15 @@ export class RoomView {
       }
 
       case "toolResult":
+        if (msg.lane) return;
         this.note("tool", `${msg.ok ? "✓" : "✗"} ${msg.preview.split("\n")[0]}`);
         return;
 
       case "turnEnd":
+        if (msg.stopReason === "lanes") {
+          this.note("turn", "lanes finished — the room votes on which one lands");
+          return;
+        }
         this.note("turn", msg.error ? `turn failed — ${msg.error}` : "turn complete");
         return;
 
@@ -193,6 +211,8 @@ export class RoomView {
     this.state.agent = room.agent.state;
     this.state.backend = room.agent.backend || this.state.backend;
     this.state.participants = room.participants;
+    this.state.lanes = room.lanes;
+    this.state.laneCount = room.laneCount;
     for (const p of room.proposals) {
       if (!this.cards.has(p.id)) this.order.push(p.id);
       this.cards.set(p.id, {
@@ -246,6 +266,8 @@ function blank(): ViewState {
     shareUrl: "",
     participants: [],
     proposals: [],
+    lanes: [],
+    laneCount: 0,
     log: [],
   };
 }

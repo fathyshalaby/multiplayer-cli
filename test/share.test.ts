@@ -36,6 +36,8 @@ function room(transport: LocalWsTransport | RelayTransport, name: string, token:
     resume: null,
     attach: null,
     pool: false,
+    lanes: 0,
+    laneSetup: null,
     transcriptPath: null,
     backendFactory: () => new Quiet(),
   });

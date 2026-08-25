@@ -40,6 +40,16 @@ says what is waiting on you.
 | `Ctrl/Cmd+Alt+Y` | approve |
 | `Ctrl/Cmd+Alt+N` | veto, with a reason |
 
+## Settings
+
+| Setting | What it does |
+|---|---|
+| `multiplayer.backend` | which coding CLI runs the session; empty means detect one |
+| `multiplayer.policy` | the room's decision preset |
+| `multiplayer.relay` | a relay to serve through, so teammates need no route to you |
+| `multiplayer.lanes` | parallel worktrees a bare `/race` opens; 0 turns [racing](./racing.md) off |
+| `multiplayer.laneSetup` | a command run in each lane's fresh checkout, e.g. `npm ci` |
+
 ## How it is put together
 
 The **extension host owns the connection**. It imports the same client,
@@ -65,3 +75,5 @@ the only way to catch a module that throws on import.
   a terminal, or apply edits — the AI acts on the host's machine as it always
   has. This is a seat, not a Live Share replacement.
 - **Hosting needs an open folder**, since a session needs a working directory.
+- **Racing needs that folder to be a git repository**, since lanes are branches.
+  The room says so rather than failing when somebody types `/race`.

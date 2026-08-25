@@ -56,6 +56,8 @@ async function startRoom(relayUrl: string, roomName: string, token: string | nul
     resume: null,
     attach: null,
     pool: false,
+    lanes: 0,
+    laneSetup: null,
     transcriptPath: null,
     backendFactory: () => backend,
   });

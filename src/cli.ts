@@ -121,6 +121,8 @@ function buildRoomConfig(p: Parsed, easy = false) {
       resume: str(p, "resume", "") || null,
       attach: str(p, "attach", "") || null,
       pool: bool(p, "pool", false),
+      lanes: num(p, "lanes", 3),
+      laneSetup: str(p, "lane-setup", "") || null,
       transcriptPath,
     },
   };
@@ -173,6 +175,14 @@ function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServe
     ...(s.pool
       ? [c.yellow("  --pool: seats that join with --runner can take turns on their own account (experimental)")]
       : []),
+    ...(server.canRace
+      ? [
+          c.dim(`  /race tries a prompt ${server.room.laneCount} ways at once, and the room votes on the diff`),
+          ...(server.laneWarning ? [c.yellow(`  ${server.laneWarning}`)] : []),
+        ]
+      : s.lanes
+        ? [c.dim(`  no racing: ${server.laneReason ?? "not a git repository"}`)]
+        : []),
     "",
   ];
 
@@ -618,6 +628,13 @@ ${c.bold("Pointing at an existing session")}
   --backend-bin <path>   override the binary the backend launches
   --backend-arg <arg>    append a verbatim argument to it; repeatable
 
+${c.bold("Racing")}
+  In a git repository the room can try one prompt several ways at once, each in
+  its own worktree, and then vote on which diff lands.
+  /race [n] <prompt>     run it in n parallel lanes (default: --lanes)
+  --lanes <n>            lanes a bare /race opens; 0 turns racing off (default: 3)
+  --lane-setup <cmd>     run this in each fresh checkout first, e.g. "npm ci"
+
 ${c.bold("Sharing the cost")}  ${c.yellow("experimental")}
   By default every turn runs on the host's account. These let the room
   carry on when that account runs out of capacity:
@@ -628,6 +645,7 @@ ${c.bold("In the session")}
   type anything          propose it to the room
   /y   /n <reason>       approve, or veto with a reason that gets recorded
   /amend  /say  /stop    rewrite a proposal · talk to the room only · interrupt
+  /race [n] <prompt>     try it n ways at once, then vote on the diffs
   /help                  everything else
 
 ${c.dim("No AI CLI installed? `mpx share` still runs, on an offline demo backend.")}

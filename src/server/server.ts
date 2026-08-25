@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
-import type { ClientMessage, Proposal, RoomPolicy, ServerMessage, ToolRequest } from "../protocol.js";
+import type { ClientMessage, LaneInfo, Proposal, RoomPolicy, ServerMessage, ToolRequest } from "../protocol.js";
 import { PROTOCOL_VERSION, decode, encode } from "../protocol.js";
-import { Room } from "../core/room.js";
+import { MAX_LANES, Room } from "../core/room.js";
 import { Transcript } from "../core/transcript.js";
 import { applyOverrides, resolvePreset } from "../core/policy.js";
 import { carriesSession, createBackend, multiplayerSystemPrompt, type BackendName } from "../agent/index.js";
@@ -11,6 +11,8 @@ import type { Peer, Transport, TransportInfo } from "./transport.js";
 import { deriveAuthKey } from "../core/crypto.js";
 import { SecureChannel } from "../core/secure.js";
 import { RoutedBackend } from "./runners.js";
+import { Race } from "./lanes.js";
+import { inspectRepo, type RepoInfo } from "../core/worktree.js";
 
 export interface ServerOptions {
   /** How seats reach this room: a local port, or a relay the host dials out to. */
@@ -40,9 +42,18 @@ export interface ServerOptions {
    * want, and it has one fewer moving part.
    */
   pool: boolean;
+  /**
+   * How many parallel attempts a bare `/race` opens. 0 turns racing off; the
+   * default is set from whether the room is even in a git repository.
+   */
+  lanes: number;
+  /** Shell command run in each lane's fresh checkout, e.g. `npm ci`. */
+  laneSetup: string | null;
+  /** Where lane checkouts go. Tests point this at a scratch directory. */
+  laneDir?: string;
   transcriptPath: string | null;
   /** Injected in tests to avoid touching a real model. */
-  backendFactory?: (opts: { participants: string[] }) => AgentBackend;
+  backendFactory?: (opts: { participants: string[]; cwd: string; lane?: string }) => AgentBackend;
 }
 
 /**
@@ -63,6 +74,18 @@ export class RoomServer {
   private abort: AbortController | null = null;
   private pendingTools = new Map<string, (d: { allow: boolean; reason: string }) => void>();
   private closed = false;
+  /** The repository lanes branch from, or null when there is not one. */
+  private repo: RepoInfo | null = null;
+  /** The race whose lanes the room is currently voting on, if any. */
+  private race: Race | null = null;
+  /**
+   * Set the instant a landing starts, not when it finishes.
+   *
+   * Two lanes can be approved from two separate votes before the first merge's
+   * git call has returned, and the lane states alone would not have caught up
+   * yet. A flag set synchronously is what actually makes landing exclusive.
+   */
+  private landing = false;
 
   constructor(opts: ServerOptions) {
     this.opts = opts;
@@ -79,6 +102,9 @@ export class RoomServer {
       this.broadcast(msg);
     });
     this.room.on("promptReady", () => void this.pump());
+    this.room.on("laneDecision", (p: Proposal, allow: boolean, reason: string) => {
+      void this.onLaneDecision(p, allow, reason);
+    });
     this.room.on("toolDecision", (p: Proposal, allow: boolean, reason: string) => {
       const key = p.tool?.toolUseId;
       if (!key) return;
@@ -93,9 +119,40 @@ export class RoomServer {
   }
 
   async listen(): Promise<TransportInfo> {
+    await this.detectRepo();
     this.info = await this.transport.start();
     this.running = true;
     return this.info;
+  }
+
+  /**
+   * Lanes are git branches, so a room that is not in a repository simply does
+   * not have them. Working that out once at startup means `/race` can say why
+   * rather than failing at the moment someone tries to use it.
+   */
+  private async detectRepo(): Promise<void> {
+    if (this.opts.lanes === 0) return;
+    const found = await inspectRepo(this.opts.cwd);
+    if (!found.ok) {
+      this.laneReason = found.error;
+      return;
+    }
+    this.repo = found.value;
+    this.room.laneCount = this.opts.lanes;
+    if (found.value.dirty) {
+      this.laneWarning =
+        "the checkout has uncommitted changes — lanes branch from the last commit and will not see them";
+    }
+  }
+
+  /** Why this room cannot race at all. Null when it can. */
+  laneReason: string | null = null;
+  /** A caveat that does not stop a race, but that the room should hear first. */
+  laneWarning: string | null = null;
+
+  /** Whether this room can race at all. */
+  get canRace(): boolean {
+    return this.repo !== null && this.room.laneCount > 0;
   }
 
   /** The command teammates run, whichever transport is in play. */
@@ -239,8 +296,28 @@ export class RoomServer {
 
     switch (msg.t) {
       case "propose": {
-        const result = this.room.propose(pid, msg.text);
+        // `race: 0` is "however many lanes this room uses", resolved here so
+        // the seat does not have to track the room's default itself.
+        const race = msg.race === undefined ? undefined : msg.race || this.room.laneCount;
+        if (race !== undefined && !this.canRace) {
+          return fail(this.laneReason ?? "this room cannot race — it is not hosted in a git repository");
+        }
+        const result = this.room.propose(pid, msg.text, race);
         if ("error" in result) fail(result.error);
+        else if (race !== undefined && this.laneWarning) this.room.notice("warn", this.laneWarning);
+        return;
+      }
+      case "setLanes": {
+        const p = this.room.get(pid);
+        if (!p) return;
+        if (p.role !== "owner") return fail("only the host can change the lane count");
+        if (!this.repo) return fail(this.laneReason ?? "this room is not hosted in a git repository");
+        if (!Number.isInteger(msg.count) || msg.count < 0 || msg.count > MAX_LANES) {
+          return fail(`lanes must be between 0 and ${MAX_LANES}`);
+        }
+        this.room.laneCount = msg.count;
+        this.room.notice("info", msg.count ? `/race opens ${msg.count} lanes` : "racing is off");
+        this.publishLanes();
         return;
       }
       case "vote":
@@ -398,11 +475,173 @@ export class RoomServer {
     this.broadcast({ t: "runners", runners: this.room.runners, activeId: this.room.activeRunnerId });
   }
 
+  private publishLanes(): void {
+    this.room.lanes = this.race ? this.race.list() : this.room.lanes;
+    this.broadcast({ t: "lanes", lanes: this.room.lanes, laneCount: this.room.laneCount });
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* races                                                             */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Run one prompt in several worktrees at once, then hand the results to the
+   * room to choose between.
+   *
+   * Only one race at a time: they are expensive, they all write to the same
+   * repository, and a room voting on six diffs from two different questions is
+   * a worse experience than waiting.
+   */
+  private async runRace(turnId: string, prompt: string, count: number, batch: Proposal[]): Promise<void> {
+    if (!this.repo) {
+      this.room.notice("error", this.laneReason ?? "this room is not hosted in a git repository");
+      return;
+    }
+    if (this.race) {
+      this.room.notice("warn", "a race is already waiting on a decision — resolve it first");
+      return;
+    }
+
+    const contributors = [...new Set(batch.map((p) => p.authorName))];
+    this.room.lastTurnAuthors = new Set(batch.map((p) => p.authorId));
+    this.room.turnCount += 1;
+    const start: ServerMessage = { t: "turnStart", turnId, prompt, contributors };
+    this.transcript.write(start);
+    this.broadcast(start);
+    this.room.setAgent({ state: "streaming", turnId, detail: `${count} lanes` });
+
+    const race = new Race({
+      repo: this.repo,
+      roomName: this.opts.roomName,
+      turnId,
+      prompt,
+      count,
+      setup: this.opts.laneSetup,
+      ...(this.opts.laneDir ? { baseDir: this.opts.laneDir } : {}),
+      makeBackend: (lane) => this.laneBackend(lane.cwd, lane.id),
+      onLaneChange: (lanes) => {
+        this.room.lanes = lanes;
+        this.publishLanes();
+      },
+      onDelta: (lane, kind, text) => this.fanout({ t: "delta", turnId, kind, text, lane }),
+      onToolResult: (lane, toolUseId, ok, preview) =>
+        this.fanout({ t: "toolResult", turnId, toolUseId, ok, preview, lane }),
+      onNotice: (text) => this.room.notice("info", text),
+    });
+    this.race = race;
+
+    this.abort = new AbortController();
+    const lanes = await race.run(this.abort.signal).catch((err): LaneInfo[] => {
+      this.room.notice("error", `race failed: ${(err as Error)?.message ?? String(err)}`);
+      return [];
+    });
+    this.abort = null;
+
+    const end: ServerMessage = { t: "turnEnd", turnId, stopReason: "lanes" };
+    this.transcript.write(end);
+    this.broadcast(end);
+    this.room.setAgent({ state: "idle", turnId: null, detail: "" });
+
+    const landable = race.landable();
+    if (!landable.length) {
+      this.room.notice("warn", describeBarren(lanes));
+      await this.endRace();
+      return;
+    }
+
+    // One proposal per lane, all open at once. Voting for a lane is voting to
+    // land it; the room picks by approving one, not by ranking them.
+    for (const lane of landable) {
+      const prop = this.room.proposeLane(lane);
+      lane.proposalId = prop.id;
+    }
+    this.publishLanes();
+  }
+
+  private laneBackend(cwd: string, lane: string): AgentBackend {
+    const participants = this.room.list().map((p) => p.name);
+    if (this.opts.backendFactory) return this.opts.backendFactory({ participants, cwd, lane });
+    return createBackend({
+      backend: this.opts.backend,
+      cwd,
+      model: this.opts.model,
+      maxTokens: this.opts.maxTokens,
+      showThinking: this.opts.showThinking,
+      systemPrompt: lanePrompt(
+        multiplayerSystemPrompt(this.opts.systemPromptExtra, participants, cwd),
+        lane,
+      ),
+      backendBin: this.opts.backendBin,
+      backendArgs: this.opts.backendArgs,
+      permissionMode: this.opts.permissionMode,
+      // A lane is a fresh attempt from a clean branch, so it never resumes the
+      // room's thread — and two lanes resuming the same thread would trample
+      // each other's history.
+      resume: null,
+      attach: null,
+    });
+  }
+
+  private async onLaneDecision(p: Proposal, allow: boolean, reason: string): Promise<void> {
+    const race = this.race;
+    const laneId = p.lane;
+    if (!race || !laneId) return;
+
+    // A landing withdraws the other lanes, which arrives back here as a
+    // rejection for each of them. That is bookkeeping, not the room deciding
+    // against anything, so a race that already has a winner says nothing more.
+    const settled = this.landing || race.list().some((l) => l.state === "landed");
+
+    if (!allow) {
+      if (settled) return;
+      // Nothing left to land: tidy up and tell the room where the work went.
+      if (!this.room.openProposals().some((o) => o.kind === "lane")) {
+        this.room.notice("info", "no lane landed");
+        await this.endRace();
+      }
+      return;
+    }
+
+    if (settled) {
+      this.room.notice("warn", `lane ${laneId} was not landed — the room already landed another`);
+      return;
+    }
+
+    this.landing = true;
+    const landed = await race.land(laneId);
+    if (!landed.ok) {
+      // A merge that failed is not a decision: the other lanes stay on the
+      // table, and the room can approve one of those instead.
+      this.landing = false;
+      this.room.notice("error", `lane ${laneId} did not land — ${landed.error}`);
+      this.publishLanes();
+      return;
+    }
+    this.room.notice("info", `lane ${laneId} landed on ${this.repo?.branch ?? "HEAD"} (${reason})`);
+    this.room.closeOtherLanes(laneId, `lane ${laneId} landed`);
+    race.markDiscarded(laneId);
+    await this.endRace();
+  }
+
+  /** Dispose of the checkouts, and say where the branches are. */
+  private async endRace(): Promise<void> {
+    const race = this.race;
+    if (!race) return;
+    this.race = null;
+    this.landing = false;
+    const branches = await race.close();
+    this.room.lanes = race.list();
+    this.publishLanes();
+    if (branches.length) {
+      this.room.notice("info", `lane branches kept: ${branches.join(", ")} — delete with git branch -D`);
+    }
+  }
+
   private ensureBackend(): AgentBackend {
     if (this.backend) return this.backend;
     const participants = this.room.list().map((p) => p.name);
     if (this.opts.backendFactory) {
-      this.backend = this.opts.backendFactory({ participants });
+      this.backend = this.opts.backendFactory({ participants, cwd: this.opts.cwd });
     } else {
       this.backend = createBackend({
         backend: this.opts.backend,
@@ -438,9 +677,15 @@ export class RoomServer {
     const batch = this.room.takeQueued();
     if (!batch.length) return;
 
-    const backend = this.ensureRouted();
     const turnId = id("turn", 6);
     const prompt = this.room.composeTurn(batch);
+    if (batch.length === 1 && batch[0]!.race) {
+      await this.runRace(turnId, prompt, batch[0]!.race!, batch);
+      if (this.room.queuedIds().length) void this.pump();
+      return;
+    }
+
+    const backend = this.ensureRouted();
     const contributors = [...new Set(batch.map((p) => p.authorName))];
     this.room.lastTurnAuthors = new Set(batch.map((p) => p.authorId));
     this.room.turnCount += 1;
@@ -542,6 +787,8 @@ export class RoomServer {
       resolve({ allow: false, reason: "room closing" });
     }
     this.room.close();
+    await this.race?.close().catch(() => []);
+    this.race = null;
     await this.routed?.close();
     this.routed = null;
     for (const peer of this.peers.values()) peer.close(1001, "room closed");
@@ -549,6 +796,34 @@ export class RoomServer {
     await this.transport.close();
     await this.transcript.close();
   }
+}
+
+/**
+ * What a lane's agent is told, on top of the room's usual system prompt.
+ *
+ * A lane cannot ask a follow-up question: nobody is watching it individually,
+ * and the room only ever sees the diff. So the instruction is to commit to an
+ * approach and carry it out rather than to check in.
+ */
+function lanePrompt(base: string, lane: string): string {
+  return [
+    base,
+    "",
+    `You are lane ${lane}: one of several agents attempting this same task in parallel, each in its own git worktree.`,
+    "Nobody is watching your lane on its own — the room compares the finished diffs and votes on which one to keep.",
+    "So: pick an approach, carry it out end to end, and leave the working tree in the state you want judged.",
+    "Do not ask questions and do not wait for approval. If the task is ambiguous, choose the reading you think is best and say which one you chose.",
+  ].join("\n");
+}
+
+/** Explain an empty race, which is a result rather than a malfunction. */
+function describeBarren(lanes: LaneInfo[]): string {
+  const failed = lanes.filter((l) => l.state === "failed");
+  const empty = lanes.filter((l) => l.state === "empty");
+  const bits: string[] = [];
+  if (empty.length) bits.push(`${empty.length} changed nothing`);
+  if (failed.length) bits.push(`${failed.length} failed (${failed[0]!.error ?? "no detail"})`);
+  return `no lane produced changes to vote on — ${bits.join(", ") || "nothing to land"}`;
 }
 
 /** How long a new socket has to prove it belongs before it is dropped. */

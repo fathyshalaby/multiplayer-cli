@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0
+
+- **Racing.** `/race 3 <prompt>` runs one approved prompt in three parallel git
+  worktrees, each agent on its own branch, and then puts the diffs to the room:
+  one proposal per lane, and approving one merges it. A vote can tell you
+  whether to send a prompt; it cannot tell you whether the answer was any good,
+  and this is how a room finds that out without arguing about it first.
+  - Landing has its own gate (`lane.*`), with no timer in any preset — silence
+    is consent for a question, not for a merge.
+  - The branches lanes leave behind are kept and named, never deleted.
+  - `--lanes n` sets the room's default (0 turns it off), `--lane-setup <cmd>`
+    runs in each fresh checkout so an agent has something it can build.
+  - A room outside a git repository says so in the invite banner instead of
+    failing when someone types `/race`.
+- Protocol 4: `propose` carries a lane count, `delta` and `toolResult` carry the
+  lane they came from, and a `lanes` frame reports every attempt's state.
+
 ## 0.8.0
 
 - **Four more coding CLIs**: `gemini`, `cursor` (`cursor-agent`), `aider` and

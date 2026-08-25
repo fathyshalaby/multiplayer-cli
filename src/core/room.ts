@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import type {
   AgentStatus,
   GatePolicy,
+  LaneInfo,
   Participant,
   Proposal,
   ProposalKind,
@@ -17,6 +18,9 @@ import type { RunnerInfo } from "../protocol.js";
 import { evaluate, type GateContext } from "./gate.js";
 import { Counter, id } from "../util/id.js";
 import { clonePolicy } from "./policy.js";
+
+/** A ceiling on parallel attempts: every lane is a real agent and real spend. */
+export const MAX_LANES = 6;
 
 export interface RoomOptions {
   name: string;
@@ -66,6 +70,10 @@ export class Room extends EventEmitter {
   /** Populated by the server from the routed backend, for display only. */
   runners: RunnerInfo[] = [];
   activeRunnerId: string | null = null;
+  /** Parallel attempts from the current or most recent race, for display. */
+  lanes: LaneInfo[] = [];
+  /** Lanes a bare `/race` opens. 0 means this room cannot race at all. */
+  laneCount = 0;
   /** Set false on close so late timers cannot resurrect a dead room. */
   private alive = true;
 
@@ -180,8 +188,14 @@ export class Room extends EventEmitter {
   /* proposals                                                         */
   /* ---------------------------------------------------------------- */
 
-  /** A participant suggests something to send to the model. */
-  propose(pid: string, text: string): Proposal | { error: string } {
+  /**
+   * A participant suggests something to send to the model.
+   *
+   * `race` asks for the prompt to be attempted that many times in parallel,
+   * each in its own worktree. The room still votes on sending it — racing
+   * changes what happens after approval, not who gets to ask.
+   */
+  propose(pid: string, text: string, race?: number): Proposal | { error: string } {
     const p = this.participants.get(pid);
     if (!p) return { error: "you are not in this room" };
     if (p.role === "observer") return { error: "observers cannot propose" };
@@ -196,7 +210,35 @@ export class Room extends EventEmitter {
       }
     }
 
-    return this.create("prompt", pid, p.name, body, gate);
+    if (race !== undefined) {
+      if (!this.laneCount) return { error: "this room cannot race — it is not hosted in a git repository" };
+      if (!Number.isInteger(race) || race < 2) return { error: "a race needs at least 2 lanes" };
+      if (race > MAX_LANES) return { error: `at most ${MAX_LANES} lanes` };
+    }
+    return this.create("prompt", pid, p.name, body, gate, undefined, race);
+  }
+
+  /**
+   * Put a finished lane to the room: land this attempt, or not.
+   *
+   * Authored by `agent` like a tool call, because nobody proposed it — the
+   * race did. That also keeps `proposerAutoYes` from quietly voting for the
+   * person who started the race on every lane at once.
+   */
+  proposeLane(lane: LaneInfo): Proposal {
+    const text = `land lane ${lane.id} — ${lane.summary}`;
+    return this.create("lane", "agent", "race", text, this.policy.lane, undefined, undefined, lane.id);
+  }
+
+  /**
+   * Close the lanes that lost. Called once a landing has actually succeeded,
+   * not when it is merely approved: a merge that hits a conflict leaves the
+   * other attempts on the table rather than throwing them away.
+   */
+  closeOtherLanes(winner: string, reason: string): void {
+    for (const prop of this.openProposals()) {
+      if (prop.kind === "lane" && prop.lane !== winner) this.resolve(prop, "withdrawn", reason);
+    }
   }
 
   /** The model wants to run a tool; the room decides whether it may. */
@@ -211,6 +253,8 @@ export class Room extends EventEmitter {
     text: string,
     gate: GatePolicy,
     tool?: ToolRequest,
+    race?: number,
+    lane?: string,
   ): Proposal {
     const prop: Proposal = {
       id: this.counter.next(),
@@ -219,6 +263,8 @@ export class Room extends EventEmitter {
       authorName,
       text,
       tool,
+      ...(race ? { race } : {}),
+      ...(lane ? { lane } : {}),
       createdAt: this.now(),
       deadline: gate.autoApproveMs === null ? null : this.now() + gate.autoApproveMs,
       votes: {},
@@ -306,8 +352,13 @@ export class Room extends EventEmitter {
   }
 
   tally(p: Proposal): Tally {
-    const gate = p.kind === "tool" ? this.policy.tool : this.policy.prompt;
-    return evaluate(p, gate, this.ctx());
+    return evaluate(p, this.gateFor(p), this.ctx());
+  }
+
+  private gateFor(p: Proposal): GatePolicy {
+    if (p.kind === "tool") return this.policy.tool;
+    if (p.kind === "lane") return this.policy.lane;
+    return this.policy.prompt;
   }
 
   private ctx(): GateContext {
@@ -366,6 +417,10 @@ export class Room extends EventEmitter {
       this.emit("toolDecision", p, true, t.reason);
       return;
     }
+    if (p.kind === "lane") {
+      this.emit("laneDecision", p, true, t.reason);
+      return;
+    }
     this.queue.push(p.id);
     this.emitMsg({ t: "queued", proposalIds: [...this.queue] });
     if (this.policy.prompt.mode === "round-robin") this.advanceMic();
@@ -380,6 +435,7 @@ export class Room extends EventEmitter {
     const t = this.tally(p);
     this.emitMsg({ t: "resolved", proposal: p, tally: { ...t, decision: "reject", reason } });
     if (p.kind === "tool") this.emit("toolDecision", p, false, reason);
+    if (p.kind === "lane") this.emit("laneDecision", p, false, reason);
   }
 
   private clearTimer(pid: string): void {
@@ -399,7 +455,7 @@ export class Room extends EventEmitter {
    */
   takeQueued(): Proposal[] {
     if (!this.queue.length) return [];
-    const ids = this.policy.mergeQueued ? this.queue.splice(0) : this.queue.splice(0, 1);
+    const ids = this.queue.splice(0, this.batchSize());
     this.emitMsg({ t: "queued", proposalIds: [...this.queue] });
     const out: Proposal[] = [];
     for (const qid of ids) {
@@ -409,6 +465,21 @@ export class Room extends EventEmitter {
       out.push(p);
     }
     return out;
+  }
+
+  /**
+   * How much of the backlog the next turn takes.
+   *
+   * A race is always alone in its turn: it forks the repository N ways, and
+   * folding somebody's unrelated question into that would put the same
+   * question to N agents and land one arbitrary answer.
+   */
+  private batchSize(): number {
+    if (this.proposals.get(this.queue[0]!)?.race) return 1;
+    if (!this.policy.mergeQueued) return 1;
+    let n = 1;
+    while (n < this.queue.length && !this.proposals.get(this.queue[n]!)?.race) n++;
+    return n;
   }
 
   queuedIds(): string[] {
@@ -474,7 +545,7 @@ export class Room extends EventEmitter {
     this.emitMsg({ t: "policy", policy: this.policy, byName: p.name });
     // Re-arm open votes so a loosened or tightened rule takes effect now.
     for (const prop of this.openProposals()) {
-      const gate = prop.kind === "tool" ? this.policy.tool : this.policy.prompt;
+      const gate = this.gateFor(prop);
       prop.deadline = gate.autoApproveMs === null ? null : this.now() + gate.autoApproveMs;
       this.arm(prop);
       this.check(prop);
@@ -528,6 +599,8 @@ export class Room extends EventEmitter {
       turnCount: this.turnCount,
       runners: this.runners,
       activeRunnerId: this.activeRunnerId,
+      lanes: this.lanes,
+      laneCount: this.laneCount,
     };
   }
 

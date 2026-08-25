@@ -48,6 +48,8 @@ async function startRoom(pool = true) {
     resume: null,
     attach: null,
     pool,
+    lanes: 0,
+    laneSetup: null,
     transcriptPath: null,
     backendFactory: () => host,
   });
