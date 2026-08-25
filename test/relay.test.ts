@@ -57,7 +57,7 @@ async function startRoom(relayUrl: string, roomName: string, token: string | nul
     backendFactory: () => backend,
   });
   const info = await server.listen();
-  return { server, backend, joinUrl: info.joinUrl(token) };
+  return { server, backend, joinUrl: info.joinUrl(token), roomName, token };
 }
 
 interface Seat {
@@ -66,8 +66,8 @@ interface Seat {
   name: string;
 }
 
-function connect(url: string, name: string): Promise<Seat> {
-  const conn = new Connection({ url, name, reconnect: false });
+function connect(url: string, name: string, token: string | null = null, room = ""): Promise<Seat> {
+  const conn = new Connection({ url, name, token, room, reconnect: false });
   const log: ServerMessage[] = [];
   conn.on("message", (m: ServerMessage) => log.push(m));
   return new Promise((resolvePromise, reject) => {
@@ -111,11 +111,11 @@ test("a full session works through the relay, with no inbound port on the host",
     await relay.close();
   });
 
-  assert.match(joinUrl, /^ws:\/\/127\.0\.0\.1:\d+\/r\/relayed\?t=tok-abcdef$/, "the invite points at the relay");
+  assert.match(joinUrl, /^ws:\/\/127\.0\.0\.1:\d+\/r\/relayed$/, "the dial URL points at the relay and carries no secret");
   assert.equal(relay.roomCount, 1);
 
-  const alice = await connect(joinUrl, "alice");
-  const bob = await connect(joinUrl, "bob");
+  const alice = await connect(joinUrl, "alice", "tok-abcdef", "relayed");
+  const bob = await connect(joinUrl, "bob", "tok-abcdef", "relayed");
   await until(alice.log, (m) => m.t === "presence" && m.joined === "bob", "bob joining");
 
   alice.conn.send({ t: "propose", text: "does the relay carry a vote" });
@@ -136,7 +136,7 @@ test("a full session works through the relay, with no inbound port on the host",
   bob.conn.close();
 });
 
-test("the host still enforces the token — the relay never sees it", async (t) => {
+test("the relay never sees the token, and cannot let the wrong one through", async (t) => {
   const { relay, url } = await startRelay();
   const { server } = await startRoom(url, "guarded", "the-real-token");
   t.after(async () => {
@@ -145,12 +145,36 @@ test("the host still enforces the token — the relay never sees it", async (t) 
   });
 
   await assert.rejects(
-    () => connect(`${url}/r/guarded?t=wrong`, "mallory"),
-    /bad or missing room token|closed/,
+    () => connect(`${url}/r/guarded`, "mallory", "wrong", "guarded"),
+    /unauthorized|closed|did not authenticate/,
   );
-  const ok = await connect(`${url}/r/guarded?t=the-real-token`, "alice");
+  const ok = await connect(`${url}/r/guarded`, "alice", "the-real-token", "guarded");
   assert.equal(ok.name, "alice");
   ok.conn.close();
+});
+
+test("what crosses the relay is ciphertext, not the session", async (t) => {
+  const { relay, url } = await startRelay();
+  const { server, joinUrl } = await startRoom(url, "sealed", "shared-secret");
+  t.after(async () => {
+    await server.close();
+    await relay.close();
+  });
+
+  // Watch the relay's own wire by attaching where a relay operator would sit.
+  const seen: string[] = [];
+  const spy = new WebSocket(`${url}/r/sealed`);
+  spy.on("message", (raw) => seen.push(raw.toString()));
+
+  const alice = await connect(joinUrl, "alice", "shared-secret", "sealed");
+  alice.conn.send({ t: "chat", text: "the merger closes on Friday" });
+  await new Promise((r) => setTimeout(r, 250));
+
+  const wire = seen.join("");
+  assert.ok(!wire.includes("merger"), "the message is not readable on the relay's wire");
+  assert.ok(!wire.includes("shared-secret"), "and neither is the token");
+  spy.close();
+  alice.conn.close();
 });
 
 test("joining a room the relay does not host fails clearly", async (t) => {
@@ -206,19 +230,21 @@ test("the relay rate-limits join attempts it cannot authenticate", async (t) => 
     await relay.close();
   });
 
-  // Two guesses are allowed through to the host, which refuses them; the third
-  // never reaches the host at all.
+  // Two guesses are allowed through to the host, which refuses them once their
+  // frames fail to decrypt; the third never reaches the host at all.
   const codes: number[] = [];
   for (let i = 0; i < 3; i++) {
     codes.push(
       await new Promise<number>((r) => {
-        const ws = new WebSocket(`${url}/r/limited?t=guess${i}`);
+        const ws = new WebSocket(`${url}/r/limited`);
+        ws.on("open", () => ws.send("not-a-frame-sealed-with-the-room-token"));
         ws.on("close", (code) => r(code));
         ws.on("error", () => r(-1));
       }),
     );
   }
-  assert.equal(codes[2], 4429, "the third attempt is refused by the relay itself");
+  assert.deepEqual(codes.slice(0, 2), [4003, 4003], "the host refuses what it cannot decrypt");
+  assert.equal(codes[2], 4429, "and the third never gets that far — the relay stops it");
 });
 
 test("the relay reports its own health", async (t) => {
@@ -229,4 +255,22 @@ test("the relay reports its own health", async (t) => {
   assert.equal(res.status, 200);
   assert.equal(body.ok, true);
   assert.equal(body.rooms, 0);
+});
+
+
+test("a socket that connects and says nothing is dropped, not held open", async (t) => {
+  const { relay, url } = await startRelay();
+  const { server } = await startRoom(url, "quiet", "tok");
+  t.after(async () => {
+    await server.close();
+    await relay.close();
+  });
+
+  // Authentication is "produce a frame that decrypts", so silence must not buy
+  // an attacker a free open connection.
+  const ws = new WebSocket(`${url}/r/quiet`);
+  await new Promise<void>((r) => ws.on("open", () => r()));
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(server.room.list().length, 0, "it is not a participant");
+  ws.close();
 });

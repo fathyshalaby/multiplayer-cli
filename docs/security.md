@@ -3,35 +3,61 @@
 What this protects, and what it does not. Read this before putting a room on
 anything that matters.
 
-## The short version
+## Room traffic is end-to-end encrypted, with forward secrecy
 
-A room is **as trusted as the people you send the link to**. The token controls
-who gets in; after that, everyone in the room can propose work that runs on the
-host's machine, subject to the room's policy. Invite accordingly.
+The token in a share link is not a password sent to a server, and it is not the
+encryption key either. It **authenticates a key agreement**.
 
-## The link is a bearer token
+Every connection begins with an ephemeral ECDH exchange (P-256), MAC'd on both
+sides with a key derived from the token, and both sides' nonces are mixed into
+the result. Traffic is then sealed with AES-256-GCM under *that* key. Anything
+in between — a relay, a TLS terminator, a corporate proxy, whoever runs the box
+— moves ciphertext it cannot read.
 
-The token in the share link is the only credential. Anyone holding it can join.
+Because the key comes from ephemeral halves that never leave memory and are
+gone when the connection ends, **someone who records traffic today and obtains
+the link tomorrow still cannot read the recording**. Two connections to the same
+room with the same token produce unrelated keys.
+
+**The token itself never travels.** There is nothing on the wire to intercept
+and nothing for an access log to capture. A seat proves it belongs by producing
+a frame the room can decrypt; a wrong token, a tampered frame and a replayed one
+all fail identically, and all mean the same thing.
+
+What is *not* hidden is metadata: who connects, when, how much they say, and the
+room name. Put TLS in front if that matters — `mpx relay --tls-cert/--tls-key`,
+or a terminator you already trust.
+
+## The link is still a bearer secret
+
+Anyone holding the link can join and decrypt everything. Treat it like a
+password.
 
 - It lives in the URL **fragment** (`#t=…`), which browsers never send to a
-  server — so it stays out of relay access logs, proxy history and `Referer`
-  headers. `mpx join` moves it onto the WebSocket where the host checks it.
-- The host compares it in constant time.
-- It is **not** rotated, and there is no revocation short of restarting the
-  room with a new one.
-- Transport is plain `ws://` unless you put TLS in front. On a LAN that means
-  anyone who can sniff the network can read the session and lift the token.
+  server, so it stays out of access logs, proxy history and `Referer` headers.
+- It is **not** rotated, and there is no revocation short of restarting the room
+  with a new one.
+- `--open` creates a room with no token — and therefore **no encryption**. Fine
+  on a network you trust for five minutes; `mpx join` refuses to connect to one
+  at a non-local address unless you pass `--insecure`.
 
-Treat the link like a password. Prefer a tunnel or a TLS-terminated relay over
-binding to a public interface.
+## The browser seat needs https
+
+Browsers only expose the cryptography for this in a *secure context*. Over
+`https://` or `localhost` the browser seat encrypts exactly like a terminal
+seat. Over plain `http://` on a LAN address it cannot, so it says so and asks
+you to use https or join from a terminal, rather than quietly downgrading a room
+that is supposed to be encrypted.
+
+This is the main reason to give a relay a certificate.
 
 ## What the room can reach
 
 Tools run on the **host's** machine, in `--cwd`. Paths that escape that
 directory are refused, but everything inside it is fair game for whatever the
-room approves.
+room approves — and everyone with the link can propose.
 
-The gate is the real control here:
+The gate is the real control:
 
 | | |
 |---|---|
@@ -46,33 +72,42 @@ default — see [Backends](./backends.md).
 
 ## The relay
 
-A relay forwards frames and nothing else. It never receives the room token,
-cannot admit anyone the host would refuse, and cannot influence a vote. It does
-carry session content in the clear, so run your own and terminate TLS in front
-of it. See [Reaching your team](./relay.md).
+A relay forwards sealed frames and a channel number. It never receives the
+token, cannot read a session, cannot admit anyone the host would refuse, and
+cannot alter a frame without the receiver rejecting it. Running someone else's
+relay costs you traffic metadata and nothing else.
 
-## The browser seat
-
-The page is served from the room's own origin, inlines everything, and declares
-a Content-Security-Policy with `default-src 'none'` — it makes no external
-requests. It stores only your display name, in `localStorage`.
-
-## Account pooling (experimental)
-
-With `--pool`, turns can run on other people's machines under their own logins.
-Nobody's credentials move: every account runs only where it is logged in. But
-tools then act on **that** person's checkout, not the host's. See
-[Account pooling](./pooling.md).
+It rate-limits connection attempts it cannot authenticate, and a socket that
+connects without proving itself within ten seconds is dropped rather than held
+open.
 
 ## What is recorded
 
 Unless you pass `--no-transcript`, every room writes `.mpx/<room>.jsonl`
 containing proposals, votes, veto reasons, chat and model output — in plain
-text, on the host's disk. It is an audit log by design; treat it as one.
+text, on the host's disk. It is an audit log by design; treat it as one. The
+encryption protects the wire, not the disk.
+
+## What this does not do
+
+- **No in-session rekeying.** One key per *connection*, not rotated during it.
+  Reconnecting agrees a new one. An attacker who extracts a live session key
+  from process memory can read the rest of that connection — but they already
+  had the machine at that point.
+- **No per-seat identity.** Everyone with the link shares one key, so the
+  cryptography proves someone is *in the room*, not *which person they are*.
+  Display names are claimed, not verified.
+- **No protection from the host.** The host runs the session and sees
+  everything. That is the design.
+- **No protection from an active attacker who already has the link.** The token
+  authenticates the handshake, so anyone holding it can be a legitimate party —
+  including in the middle. The link is the trust boundary.
+- **Not audited.** Standard constructions used in a straightforward way
+  (HKDF-SHA256, ECDH P-256, HMAC-SHA256, AES-256-GCM), but no third party has
+  reviewed this.
 
 ## Reporting something
 
 Open an issue at
 <https://github.com/fathyshalaby/multiplayer-cli/issues>. If it is sensitive,
-say so in the issue without the details and the maintainer will find a private
-channel.
+say so without the details and the maintainer will find a private channel.

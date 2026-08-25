@@ -61,7 +61,7 @@ interface Seat {
 }
 
 function connect(port: number, name: string): Promise<Seat> {
-  const conn = new Connection({ url: `ws://127.0.0.1:${port}/`, name, reconnect: false });
+  const conn = new Connection({ url: `ws://127.0.0.1:${port}/r/fo`, room: "fo", name, reconnect: false });
   const log: ServerMessage[] = [];
   conn.on("message", (m: ServerMessage) => log.push(m));
   return new Promise((res, rej) => {
@@ -161,7 +161,7 @@ test("observers cannot volunteer an account", async (t) => {
   t.after(async () => await server.close());
 
   const alice = await connect(port, "alice");
-  const conn = new Connection({ url: `ws://127.0.0.1:${port}/`, name: "dave", observer: true, reconnect: false });
+  const conn = new Connection({ url: `ws://127.0.0.1:${port}/r/fo`, room: "fo", name: "dave", observer: true, reconnect: false });
   const log: ServerMessage[] = [];
   conn.on("message", (m: ServerMessage) => log.push(m));
   await new Promise<void>((r) => {
@@ -197,7 +197,7 @@ for (const o of out) process.stdout.write(JSON.stringify(o)+"\\n");
   chmodSync(bin, 0o755);
 
   const alice = await connect(port, "alice");
-  const bobConn = new Connection({ url: `ws://127.0.0.1:${port}/`, name: "bob", reconnect: false });
+  const bobConn = new Connection({ url: `ws://127.0.0.1:${port}/r/fo`, room: "fo", name: "bob", reconnect: false });
   const notices: string[] = [];
   const runner = new LocalRunner({
     connection: bobConn,

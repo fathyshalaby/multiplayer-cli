@@ -109,15 +109,129 @@
 <script>
 (function () {
   "use strict";
-  const PROTOCOL = 1;
+  const PROTOCOL = 3;
   // The token lives in the fragment, so it is never sent to the relay or host
   // as part of an HTTP request and never lands in an access log.
   const hash = new URLSearchParams(location.hash.slice(1));
   const token = hash.get("t") || "";
   const room = decodeURIComponent(location.pathname.split("/").pop() || "");
   const wsBase = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
-  const wsUrl = wsBase + "/r/" + encodeURIComponent(room) + (token ? "?t=" + encodeURIComponent(token) : "");
-  const joinCmd = "npx multiplayer-cli join " + wsUrl;
+  // The token is the room's key, so it never goes into the URL we dial.
+  const wsUrl = wsBase + "/r/" + encodeURIComponent(room);
+  const joinCmd = "npx multiplayer-cli join " + location.href;
+
+  /* ---- end-to-end encryption -------------------------------------
+     Same construction as the terminal client: HKDF over the token keyed by the
+     room name, AES-256-GCM per frame, sequence numbers inside the ciphertext.
+     WebCrypto is only exposed in a secure context, so over plain http:// on a
+     LAN address there is no way to do this — we say so rather than silently
+     downgrading a room that is supposed to be encrypted. */
+  const subtle = (window.crypto && window.crypto.subtle) || null;
+  const enc = new TextEncoder(), dec = new TextDecoder();
+  let roomKey = null, authKey = null, myEph = null, myNonce = null, outSeq = 0, lastSeq = -1;
+
+  /* The token authenticates a key agreement; it never encrypts anything. Each
+     connection derives its own key by ephemeral ECDH, so traffic recorded today
+     stays unreadable even if this link leaks tomorrow. */
+  async function deriveAuthKey() {
+    if (!token) return null;
+    const base = await subtle.importKey("raw", enc.encode(token), "HKDF", false, ["deriveBits"]);
+    return await subtle.deriveBits(
+      { name: "HKDF", hash: "SHA-256", salt: enc.encode(room), info: enc.encode("multiplayer-cli auth v2") },
+      base,
+      256,
+    );
+  }
+
+  async function hmac(keyBits, label, parts) {
+    const key = await subtle.importKey("raw", keyBits, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const chunks = [enc.encode(label)];
+    for (const p of parts) {
+      const len = new Uint8Array(4);
+      new DataView(len.buffer).setUint32(0, p.byteLength);
+      chunks.push(len, new Uint8Array(p));
+    }
+    let total = 0; for (const c of chunks) total += c.byteLength;
+    const buf = new Uint8Array(total);
+    let at = 0; for (const c of chunks) { buf.set(c, at); at += c.byteLength; }
+    return new Uint8Array(await subtle.sign("HMAC", key, buf));
+  }
+
+  const sameBytes = (a, b) => {
+    if (a.byteLength !== b.byteLength) return false;
+    let diff = 0;
+    for (let i = 0; i < a.byteLength; i++) diff |= a[i] ^ b[i];
+    return diff === 0;
+  };
+
+  async function beginHandshake() {
+    myEph = await subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+    const pub = new Uint8Array(await subtle.exportKey("raw", myEph.publicKey));
+    myNonce = crypto.getRandomValues(new Uint8Array(16));
+    const mac = await hmac(authKey, "mpx-client", [pub, myNonce]);
+    return JSON.stringify({ h: 2, epk: b64(pub), n: b64(myNonce), mac: b64(mac) });
+  }
+
+  async function finishHandshake(frame) {
+    let m; try { m = JSON.parse(frame); } catch (e) { return false; }
+    if (m.h !== 2 || !m.epk || !m.n || !m.mac) return false;
+    const peerPub = unb64(m.epk), peerNonce = unb64(m.n), claimed = unb64(m.mac);
+    const myPub = new Uint8Array(await subtle.exportKey("raw", myEph.publicKey));
+    const want = await hmac(authKey, "mpx-server", [peerPub, peerNonce, myPub, myNonce]);
+    if (!sameBytes(claimed, want)) return false;
+
+    const peerKey = await subtle.importKey("raw", peerPub, { name: "ECDH", namedCurve: "P-256" }, false, []);
+    const shared = await subtle.deriveBits({ name: "ECDH", public: peerKey }, myEph.privateKey, 256);
+
+    const salt = new Uint8Array(myNonce.byteLength + peerNonce.byteLength);
+    salt.set(myNonce, 0); salt.set(peerNonce, myNonce.byteLength);
+    const base = await subtle.importKey("raw", shared, "HKDF", false, ["deriveKey"]);
+    roomKey = await subtle.deriveKey(
+      { name: "HKDF", hash: "SHA-256", salt, info: enc.encode("multiplayer-cli session v2:" + room) },
+      base,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    );
+    return true;
+  }
+
+  const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+  async function sealFrame(text) {
+    if (!roomKey) return text;
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await subtle.encrypt(
+      { name: "AES-GCM", iv, additionalData: enc.encode(room) },
+      roomKey,
+      enc.encode(outSeq++ + "\n" + text),
+    );
+    const out = new Uint8Array(iv.length + ct.byteLength);
+    out.set(iv, 0); out.set(new Uint8Array(ct), iv.length);
+    return b64(out);
+  }
+
+  async function openFrame(frame) {
+    if (!roomKey) return frame;
+    try {
+      const raw = unb64(frame);
+      const plain = await subtle.decrypt(
+        { name: "AES-GCM", iv: raw.subarray(0, 12), additionalData: enc.encode(room) },
+        roomKey,
+        raw.subarray(12),
+      );
+      const text = dec.decode(plain);
+      const nl = text.indexOf("\n");
+      if (nl < 0) return null;
+      const seq = Number(text.slice(0, nl));
+      if (!Number.isSafeInteger(seq) || seq <= lastSeq) return null;
+      lastSeq = seq;
+      return text.slice(nl + 1);
+    } catch (e) {
+      return null;
+    }
+  }
 
   const $ = (id) => document.getElementById(id);
   $("gate-room").textContent = room || "this room";
@@ -138,18 +252,51 @@
   let ws = null, me = null, snap = null;
   const cards = new Map();
 
-  function enter() {
+  async function enter() {
     const name = ($("gate-name").value || "").trim() || "guest";
     try { localStorage.setItem("mpx.name", name); } catch (e) {}
+
+    if (token && !subtle) {
+      $("gate-err").innerHTML =
+        "This room is end-to-end encrypted, and browsers only expose the crypto for that over " +
+        "<b>https</b>. Open this link over https, or join from a terminal with the command above — " +
+        "that works either way.";
+      return;
+    }
     $("gate-err").textContent = "connecting…";
+    try {
+      authKey = await deriveAuthKey();
+    } catch (e) {
+      $("gate-err").textContent = "could not prepare the room key: " + e.message;
+      return;
+    }
     connect(name);
   }
 
   function connect(name) {
     ws = new WebSocket(wsUrl);
-    ws.onopen = () => ws.send(JSON.stringify({ t: "hello", name: name, protocol: PROTOCOL }));
-    ws.onmessage = (ev) => {
-      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    ws.onopen = async () => {
+      if (authKey) ws.send(await beginHandshake());
+      else send({ t: "hello", name: name, protocol: PROTOCOL });
+    };
+    ws.onmessage = async (ev) => {
+      if (authKey && !roomKey) {
+        if (!(await finishHandshake(ev.data))) {
+          $("gate-err").textContent =
+            "the room did not answer the handshake correctly — wrong link, or something is intercepting the connection.";
+          ws.close();
+          return;
+        }
+        send({ t: "hello", name: name, protocol: PROTOCOL });
+        return;
+      }
+      const plain = await openFrame(ev.data);
+      if (plain === null) {
+        $("gate-err").textContent = "a frame from the room did not authenticate — wrong link, or something is altering the connection.";
+        ws.close();
+        return;
+      }
+      let m; try { m = JSON.parse(plain); } catch (e) { return; }
       handle(m);
     };
     ws.onerror = () => { $("gate-err").textContent = "could not reach the room."; };
@@ -160,7 +307,16 @@
     };
   }
 
-  function send(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
+  function send(msg) {
+    if (!ws || ws.readyState !== 1) return;
+    // Sealing is async, so keep a queue rather than letting frames race and
+    // arrive with out-of-order sequence numbers.
+    sendChain = sendChain
+      .then(() => sealFrame(JSON.stringify(msg)))
+      .then((frame) => { if (ws && ws.readyState === 1) ws.send(frame); })
+      .catch(() => {});
+  }
+  let sendChain = Promise.resolve();
 
   function show() {
     $("gate").hidden = true;

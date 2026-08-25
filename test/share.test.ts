@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Relay } from "../src/server/relay.js";
 import { RoomServer } from "../src/server/server.js";
 import { LocalWsTransport, RelayTransport } from "../src/server/transport.js";
-import { normalizeJoinUrl } from "../src/util/url.js";
+import { parseJoinTarget, isLocalHost } from "../src/util/url.js";
 import { shareLink, httpOrigin, sessionPage } from "../src/server/web.js";
 import { resolvePreset } from "../src/core/policy.js";
 import { onPath } from "../src/util/detect.js";
@@ -59,40 +59,73 @@ test("ws origins map to the http origin a browser would open", () => {
   assert.equal(httpOrigin("ws://127.0.0.1:7788"), "http://127.0.0.1:7788");
 });
 
-test("`mpx join` accepts the same link that was clickable in chat", () => {
-  assert.equal(
-    normalizeJoinUrl("https://relay.example.com/s/amber-ridge-04#t=Kf3nQ"),
-    "wss://relay.example.com/r/amber-ridge-04?t=Kf3nQ",
-  );
-  assert.equal(
-    normalizeJoinUrl("http://192.168.1.20:7777/s/dusk-vale-11#t=abc"),
-    "ws://192.168.1.20:7777/r/dusk-vale-11?t=abc",
-  );
+test("a share link yields a URL with no secret in it, plus the key", () => {
+  const t = parseJoinTarget("https://relay.example.com/s/amber-ridge-04#t=Kf3nQ");
+  assert.equal(t.url, "wss://relay.example.com/r/amber-ridge-04", "the token is not in the URL");
+  assert.equal(t.room, "amber-ridge-04");
+  assert.equal(t.token, "Kf3nQ");
+  assert.equal(t.plaintext, false);
 });
 
-test("`mpx join` still accepts the raw WebSocket forms", () => {
-  assert.equal(normalizeJoinUrl("ws://127.0.0.1:7777/?t=abc"), "ws://127.0.0.1:7777/?t=abc");
-  assert.equal(normalizeJoinUrl("wss://relay/r/room?t=abc"), "wss://relay/r/room?t=abc");
-  assert.equal(normalizeJoinUrl("127.0.0.1:7777"), "ws://127.0.0.1:7777");
+test("an http share link maps to ws, and is flagged as plaintext", () => {
+  const t = parseJoinTarget("http://192.168.1.20:7777/s/dusk-vale-11#t=abc");
+  assert.equal(t.url, "ws://192.168.1.20:7777/r/dusk-vale-11");
+  assert.equal(t.token, "abc");
+  assert.equal(t.plaintext, true);
+});
+
+test("an older link with the token in the query still works, but the token is lifted out", () => {
+  const t = parseJoinTarget("ws://relay/r/room?t=abc");
+  assert.equal(t.url, "ws://relay/r/room", "and is not passed on");
+  assert.equal(t.token, "abc");
+});
+
+test("a room with no token parses as one with no key", () => {
+  const t = parseJoinTarget("ws://127.0.0.1:7777/r/open-room");
+  assert.equal(t.token, null);
+  assert.equal(t.room, "open-room");
 });
 
 test("a link pasted with the usual chat debris still works", () => {
-  assert.equal(
-    normalizeJoinUrl("  <https://relay.example.com/s/room#t=tok>  "),
-    "wss://relay.example.com/r/room?t=tok",
-  );
+  const t = parseJoinTarget("  <https://relay.example.com/s/room#t=tok>  ");
+  assert.equal(t.url, "wss://relay.example.com/r/room");
+  assert.equal(t.token, "tok");
+});
+
+test("local addresses are recognised, public ones are not", () => {
+  for (const local of [
+    "ws://127.0.0.1:7777/",
+    "ws://localhost:7777/",
+    "ws://192.168.1.20:7777/",
+    "ws://10.0.0.5:7777/",
+    "ws://172.16.4.1:7777/",
+    "ws://box.local:7777/",
+  ]) {
+    assert.equal(isLocalHost(local), true, local);
+  }
+  for (const public_ of ["ws://relay.example.com/", "ws://8.8.8.8/", "ws://172.32.0.1/"]) {
+    assert.equal(isLocalHost(public_), false, public_);
+  }
 });
 
 /* ---- the browser seat ------------------------------------------- */
 
-test("the browser seat is one self-contained page with no external requests", () => {
+test("the browser seat is one self-contained page that fetches nothing", () => {
   const html = sessionPage();
   assert.match(html, /<!doctype html>/i);
   assert.ok(html.includes("multiplayer-cli"));
-  assert.ok(!/<script[^>]+src=/i.test(html), "no remote scripts");
-  assert.ok(!/<link[^>]+href=/i.test(html), "no remote stylesheets");
-  assert.ok(!/https?:\/\/(?!localhost)/.test(html.replace(/wss?:\/\//g, "")), "nothing fetched from the internet");
+
+  // Check for actual ways to make a request, rather than for anything that
+  // looks like a URL — a scheme inside a comment is not a network call.
+  assert.ok(!/<script[^>]+\bsrc\s*=/i.test(html), "no remote scripts");
+  assert.ok(!/<link[^>]+\bhref\s*=/i.test(html), "no remote stylesheets");
+  assert.ok(!/<img[^>]+\bsrc\s*=/i.test(html), "no remote images");
+  assert.ok(!/\bfetch\s*\(/.test(html), "no fetch");
+  assert.ok(!/XMLHttpRequest|EventSource|importScripts/.test(html), "no other transports");
+  assert.ok(!/@import|url\(\s*['\"]?https?:/i.test(html), "no CSS imports");
+
   assert.ok(html.includes("location.hash"), "it reads the token from the fragment");
+  assert.ok(html.includes("AES-GCM"), "and encrypts what it sends with it");
 });
 
 test("a local room serves the seat and a health check", async (t) => {
@@ -113,7 +146,8 @@ test("a local room serves the seat and a health check", async (t) => {
 
   assert.equal(info.shareUrl("tok"), `${base}/s/served#t=tok`);
   assert.equal(new URL((await fetch(`${base}/nope`)).url).pathname, "/nope");
-  assert.match(info.selfUrl("tok"), /^ws:\/\/127\.0\.0\.1:\d+\/\?t=tok$/);
+  assert.match(info.selfUrl("tok"), /^ws:\/\/127\.0\.0\.1:\d+\/r\/served$/);
+  assert.ok(!info.joinUrl("tok").includes("tok"), "the dial URL carries no secret");
 });
 
 test("a relayed room serves the seat from the relay", async (t) => {

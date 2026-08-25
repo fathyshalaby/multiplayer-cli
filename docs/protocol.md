@@ -1,7 +1,7 @@
 # Protocol
 
 Everything is newline-free JSON frames over one WebSocket. `src/protocol.ts` is
-the authority; this page is the map. Current version: **1** (`PROTOCOL_VERSION`).
+the authority; this page is the map. Current version: **3** (`PROTOCOL_VERSION`).
 
 A client that speaks this can be a seat — the browser seat in
 `src/client/web/session.html` is about 200 lines of it.
@@ -13,7 +13,17 @@ ws(s)://<host>/r/<room>?t=<token>      # relayed room
 ws(s)://<host>:<port>/?t=<token>       # direct room
 ```
 
-Send `hello` first. Anything else before it is refused.
+A connection opens with a key agreement, not a message. The client sends an
+ephemeral P-256 public key and a nonce, MAC'd with a key derived from the room
+token; the host replies in kind, MAC'ing the client's half too. Both derive the
+session key from the shared point and both nonces. Every frame after that is
+sealed with AES-256-GCM and carries a sequence number inside the ciphertext.
+
+Handshake frames are JSON and begin with `{`; data frames are base64 and never
+do. A room started with `--open` has no token, so it skips all of this and
+speaks plain JSON.
+
+Then send `hello`. Anything else before it is refused.
 
 ```json
 {"t":"hello","name":"alice","protocol":1,"observer":false}

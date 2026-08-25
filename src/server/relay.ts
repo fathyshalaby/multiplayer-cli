@@ -1,4 +1,5 @@
-import { createServer, type IncomingMessage, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer as createTlsServer } from "node:https";
 import { WebSocketServer, WebSocket } from "ws";
 import { PROTOCOL_VERSION } from "../protocol.js";
 import { id } from "../util/id.js";
@@ -7,6 +8,8 @@ import { serveWeb } from "./web.js";
 export interface RelayOptions {
   host: string;
   port: number;
+  /** PEM cert and key, so the relay serves wss:// without a reverse proxy. */
+  tls?: { cert: string; key: string } | null;
   /** Reject a new room whose name is already registered. */
   maxRooms: number;
   /** Cap concurrent seats per room, so one room cannot exhaust the relay. */
@@ -28,23 +31,25 @@ interface RelayRoom {
  * A dumb pipe that lets a room be reachable without an inbound port.
  *
  * The host dials *out* and registers a room; teammates connect to the relay and
- * are multiplexed onto that one connection. The relay deliberately knows as
- * little as possible: it never learns the room token, never inspects a frame,
- * and cannot admit anyone — every seat still has to satisfy the host's own
- * `hello` check, which happens end-to-end through this pipe.
+ * are multiplexed onto that one connection.
  *
- * It is still a machine in the middle of your session's plaintext. Run your
- * own, and put TLS in front of it.
+ * The relay cannot read the session. Frames are sealed end-to-end with the room
+ * token before they get here, so what passes through is ciphertext with a
+ * channel number attached. It never learns the token, cannot admit anyone the
+ * host would refuse, and cannot alter a frame without the receiver rejecting
+ * it. Running someone else's relay costs you traffic metadata — who is
+ * connected, how much they say, when — and nothing else.
  */
 export class Relay {
   private http: Server;
   private wss: WebSocketServer;
   private rooms = new Map<string, RelayRoom>();
   private opts: RelayOptions;
+  private secure = false;
 
   constructor(opts: RelayOptions) {
     this.opts = opts;
-    this.http = createServer((req, res) => {
+    const handler = (req: IncomingMessage, res: ServerResponse) => {
       const pathname = new URL(req.url ?? "/", "http://relay").pathname;
       // A shared link lands here. Serving the seat from the relay is what makes
       // the link worth clicking for someone with nothing installed.
@@ -62,7 +67,11 @@ export class Relay {
         return;
       }
       res.writeHead(404).end("multiplayer-cli relay");
-    });
+    };
+    this.http = opts.tls
+      ? (createTlsServer({ cert: opts.tls.cert, key: opts.tls.key }, handler) as unknown as Server)
+      : createServer(handler);
+    this.secure = Boolean(opts.tls);
 
     this.wss = new WebSocketServer({ server: this.http });
     this.wss.on("connection", (ws, req) => this.route(ws, req));
@@ -77,7 +86,7 @@ export class Relay {
     if (url.pathname === "/host") return this.acceptHost(ws, url);
     if (url.pathname.startsWith("/r/")) {
       const name = decodeURIComponent(url.pathname.slice(3));
-      return this.acceptPeer(ws, name, url.search.replace(/^\?/, ""));
+      return this.acceptPeer(ws, name);
     }
     ws.close(4404, "unknown path");
   }
@@ -141,7 +150,7 @@ export class Relay {
     }
   }
 
-  private acceptPeer(ws: WebSocket, name: string, query: string): void {
+  private acceptPeer(ws: WebSocket, name: string): void {
     const room = this.rooms.get(name);
     if (!room) {
       ws.close(4404, `no room named "${name}" is hosted here`);
@@ -151,8 +160,9 @@ export class Relay {
       ws.close(4429, "room is full");
       return;
     }
-    // The relay cannot check the room token — it never has it — so it limits
-    // how fast anyone may try, and lets the host reject the rest.
+    // The relay has no way to tell a real seat from a stranger — that is
+    // settled end-to-end by whether their frames decrypt — so it limits how
+    // fast anyone may try and lets the host reject the rest.
     const now = Date.now();
     room.joinTimes = room.joinTimes.filter((t) => now - t < 60_000);
     if (room.joinTimes.length >= this.opts.joinsPerMinute) {
@@ -163,7 +173,9 @@ export class Relay {
 
     const channel = id("c", 6);
     room.peers.set(channel, ws);
-    send(room.host, { c: 0, ctl: "open", id: channel, q: query });
+    // Nothing about the joiner is forwarded but the channel number. Anything
+    // else would be the relay vouching for someone, which it cannot do.
+    send(room.host, { c: 0, ctl: "open", id: channel });
 
     ws.on("message", (raw) => send(room.host, { c: channel, d: raw.toString() }));
     const bye = () => {
@@ -188,6 +200,11 @@ export class Relay {
 
   get roomCount(): number {
     return this.rooms.size;
+  }
+
+  /** True when this relay terminates TLS itself. */
+  get isSecure(): boolean {
+    return this.secure;
   }
 
   async close(): Promise<void> {

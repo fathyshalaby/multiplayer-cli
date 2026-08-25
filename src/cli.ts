@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { resolve, join } from "node:path";
+import { readFileSync } from "node:fs";
 import { RoomServer } from "./server/server.js";
 import { LocalWsTransport, RelayTransport, type Transport } from "./server/transport.js";
 import { Relay } from "./server/relay.js";
@@ -18,11 +19,11 @@ import { BACKENDS, BACKEND_HELP, GATES_TOOLS, type BackendName } from "./agent/i
 import { roomName, token as makeToken } from "./util/id.js";
 import { bool, multi, num, parseArgs, str, type Parsed } from "./util/args.js";
 import { defaultName, readConfig, saveConfig } from "./util/config.js";
-import { normalizeJoinUrl } from "./util/url.js";
+import { parseJoinTarget, isLocalHost } from "./util/url.js";
 import { detectBackend, installedBackends } from "./util/detect.js";
 import * as c from "./util/ansi.js";
 
-const VERSION = "0.5.1";
+const VERSION = "0.6.0";
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
@@ -98,6 +99,7 @@ function buildRoomConfig(p: Parsed, easy = false) {
 
   return {
     detected,
+    tls: readTls(p),
     bindHost: str(p, "host", defaultBind),
     port: num(p, "port", 7777),
     relay,
@@ -126,7 +128,25 @@ function makeTransport(cfg: ReturnType<typeof buildRoomConfig>, onWarn: (t: stri
   if (cfg.relay) {
     return new RelayTransport({ url: cfg.relay, roomName: cfg.server.roomName, onWarn });
   }
-  return new LocalWsTransport({ host: cfg.bindHost, port: cfg.port, roomName: cfg.server.roomName });
+  return new LocalWsTransport({
+    host: cfg.bindHost,
+    port: cfg.port,
+    roomName: cfg.server.roomName,
+    tls: cfg.tls,
+  });
+}
+
+/** Read a PEM cert/key pair, if the user supplied one. */
+function readTls(p: Parsed): { cert: string; key: string } | null {
+  const cert = str(p, "tls-cert", "");
+  const key = str(p, "tls-key", "");
+  if (!cert && !key) return null;
+  if (!cert || !key) fatal("--tls-cert and --tls-key must be given together");
+  try {
+    return { cert: readFileSync(cert, "utf8"), key: readFileSync(key, "utf8") };
+  } catch (err) {
+    return fatal(`could not read the TLS pair: ${(err as Error).message}`);
+  }
 }
 
 function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServer, warnings: string[]): string[] {
@@ -145,6 +165,9 @@ function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServe
       }`,
     ),
     ...(s.attach ? [c.dim(`  attached to ${s.attach}`)] : []),
+    s.token
+      ? c.dim("  end-to-end encrypted — the token in the link is the key, and never leaves this machine")
+      : c.yellow("  --open: no token, so nothing is encrypted. Keep this to a network you trust."),
     ...(s.pool
       ? [c.yellow("  --pool: seats that join with --runner can take turns on their own account (experimental)")]
       : []),
@@ -182,7 +205,13 @@ async function cmdHost(p: Parsed, easy = false): Promise<void> {
 
   const name = str(p, "name", defaultName());
   saveConfig({ name });
-  const conn = new Connection({ url: server.selfUrl(), name, reconnect: true });
+  const conn = new Connection({
+    url: server.selfUrl(),
+    room: cfg.server.roomName,
+    token: cfg.server.token,
+    name,
+    reconnect: true,
+  });
   const tui = new Tui({
     connection: conn,
     name,
@@ -234,11 +263,15 @@ async function cmdJoin(p: Parsed): Promise<void> {
   const target = p.positional[0] ?? (typeof p.flags.get("url") === "string" ? String(p.flags.get("url")) : null);
   if (!target) fatal("usage: mpx join <link>   (the host prints one when the room starts)");
 
-  const url = normalizeJoinUrl(target!);
+  const join = parseJoinTarget(target!);
+  guardPlaintext(join.url, join.token, bool(p, "insecure", false));
+
   const name = str(p, "name", defaultName());
   const observer = bool(p, "observer", false);
   const conn = new Connection({
-    url,
+    url: join.url,
+    room: join.room,
+    token: join.token,
     name,
     reconnect: true,
     ...(observer ? { observer: true } : {}),
@@ -258,7 +291,10 @@ async function cmdJoin(p: Parsed): Promise<void> {
     ...(canRun ? { onServerMessage: (msg) => runner!.handle(msg) } : {}),
     banner: [
       "",
-      c.dim(`  connecting to ${url.replace(/\?t=.*/, "?t=…")} …`),
+      c.dim(`  connecting to ${join.url} …`),
+      conn.encrypted
+        ? c.dim("  end-to-end encrypted with the room token")
+        : c.yellow("  this room has no token, so traffic is not encrypted"),
       ...(canRun
         ? [c.dim(`  offering your ${detected} session, if the host has pooling on`)]
         : wantRunner
@@ -296,15 +332,35 @@ async function cmdJoin(p: Parsed): Promise<void> {
   saveConfig({ name });
 }
 
+/**
+ * Refuse to carry a session across the open internet in the clear.
+ *
+ * An encrypted room is safe on plain ws:// — the payload is sealed with the
+ * token and a relay only moves ciphertext. An *open* room has no token and
+ * therefore no key, so plaintext to a public address would put the whole
+ * session on the wire for anyone on the path.
+ */
+function guardPlaintext(url: string, token: string | null, allow: boolean): void {
+  if (token || isLocalHost(url) || allow) return;
+  fatal(
+    `refusing to join ${url} in the clear.\n` +
+      `  This room has no token, so nothing can be encrypted, and the address is not local —\n` +
+      `  the whole session would cross the internet readable by anyone on the path.\n` +
+      `  Ask the host to drop --open, use wss://, or pass --insecure if you accept the risk.`,
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* relay                                                               */
 /* ------------------------------------------------------------------ */
 
 async function cmdRelay(p: Parsed): Promise<void> {
   const bind = str(p, "host", "0.0.0.0");
+  const tls = readTls(p);
   const relay = new Relay({
     host: bind,
     port: num(p, "port", 7788),
+    tls,
     maxRooms: num(p, "max-rooms", 64),
     maxPeersPerRoom: num(p, "max-peers", 32),
     joinsPerMinute: num(p, "joins-per-minute", 60),
@@ -314,14 +370,20 @@ async function cmdRelay(p: Parsed): Promise<void> {
   });
   const port = await relay.listen();
 
-  console.log(`multiplayer-cli relay listening on ${bind}:${port}`);
+  const scheme = relay.isSecure ? "wss" : "ws";
+  console.log(`multiplayer-cli relay listening on ${bind}:${port}${relay.isSecure ? " (TLS)" : ""}`);
   console.log("");
-  console.log(`  hosts run:  mpx host --relay ws://<this-machine>:${port}`);
-  console.log("  then hand out the join URL it prints. No inbound port on their side.");
+  console.log(`  hosts run:  mpx share --relay ${scheme}://<this-machine>:${port}`);
+  console.log("  then hand out the link it prints. No inbound port on their side.");
   console.log("");
-  console.log(c.dim("  The relay forwards frames between a room's host and its seats. It never"));
-  console.log(c.dim("  receives the room token and cannot admit anyone the host would refuse —"));
-  console.log(c.dim("  but session content passes through in the clear. Run your own, behind TLS."));
+  console.log(c.dim("  Room traffic is sealed end-to-end with each room's token before it reaches"));
+  console.log(c.dim("  this relay, so what passes through is ciphertext with a channel number."));
+  console.log(c.dim("  A relay operator sees who is connected and how much they say — not what."));
+  if (!relay.isSecure) {
+    console.log("");
+    console.log(c.yellow("  No TLS here. Room contents are still encrypted, but the connection"));
+    console.log(c.yellow("  metadata is not. Add --tls-cert/--tls-key, or put a terminator in front."));
+  }
 
   const stop = async () => {
     await relay.close();
@@ -450,6 +512,7 @@ ${c.bold("multiplayer-cli")} — make your AI session multiplayer
 
   console.log(`${c.bold("More commands")}
   mpx relay [--port n]         run a relay, so hosts need no open port
+                               --tls-cert/--tls-key to serve wss:// directly
   mpx serve [options]          run a room with no seat of your own
   mpx transcript <file>        replay a session's audit log
 
@@ -468,8 +531,16 @@ ${c.bold("Who can reach it")}
   mpx share              on your network, gated by the token in the link
   --local                this machine only
   --relay <url>          through a relay, reachable anywhere (remembered after once)
-  --open                 no token at all
-  --port <n>  --host <addr>   pick them yourself
+  --open                 no token, and therefore no encryption
+  --tls-cert <f> --tls-key <f>   serve wss:// and https:// directly
+  --port <n>  --host <addr>      pick them yourself
+
+${c.bold("Security")}
+  Room traffic is end-to-end encrypted with the token in the share link, so a
+  relay, a proxy or a TLS terminator moves ciphertext it cannot read. The token
+  is never sent over the network — a seat proves it has one by producing a frame
+  the room can decrypt.
+  --insecure             join an unencrypted room on a public address anyway
 
 ${c.bold("Seat options")}
   --name <name>          your display name (remembered)
