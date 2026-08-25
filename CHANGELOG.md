@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.3
+
+- **A captured handshake frame could hold a socket open indefinitely.**
+  Finishing the key agreement was treated as proof that a peer belonged, but
+  the client's half is a MAC over its own public key and nonce — nothing in it
+  is chosen by the connection it arrives on, so an opening frame observed on
+  the wire replays perfectly. The replayer can never say anything (it has no
+  private half), but it could keep a connection slot for as long as it liked,
+  and repeat that until a room was full. The clock now stops only when a frame
+  arrives that decrypts, which a real seat produces in milliseconds.
+- **Shutting a room down left unauthenticated sockets attached.** Only seats
+  that had said `hello` were closed, so a connection still handshaking — or
+  refusing to speak — survived `close()` and kept the process alive with it.
+
 ## 0.11.2
 
 - **The published extension was two thirds waste.** With no `.vscodeignore`,

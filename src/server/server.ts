@@ -52,6 +52,8 @@ export interface ServerOptions {
   laneSetup: string | null;
   /** Where lane checkouts go. Tests point this at a scratch directory. */
   laneDir?: string;
+  /** How long a socket has to prove it belongs. Shortened in tests. */
+  handshakeMs?: number;
   transcriptPath: string | null;
   /** Injected in tests to avoid touching a real model. */
   backendFactory?: (opts: { participants: string[]; cwd: string; lane?: string }) => AgentBackend;
@@ -67,6 +69,15 @@ export class RoomServer {
   private transport: Transport;
   private info: TransportInfo | null = null;
   private peers = new Map<string, Peer>();
+  /**
+   * Every accepted socket, joined or not.
+   *
+   * `peers` holds seats, and a socket only becomes one by saying hello. A
+   * connection that never gets that far — still handshaking, or refusing to
+   * speak at all — is not in there, so shutting the room down used to leave it
+   * attached and the process alive with it.
+   */
+  private sockets = new Set<Peer>();
   private transcript: Transcript;
   private backend: AgentBackend | null = null;
   private routed: RoutedBackend | null = null;
@@ -197,14 +208,15 @@ export class RoomServer {
     const connectionId = ws.id;
     let joined = false;
     let proven = !channel.encrypted;
+    this.sockets.add(ws);
 
-    // Authentication is now "produce a frame that decrypts", so a peer that
+    // Authentication is "produce a frame that decrypts", so a peer that
     // connects and says nothing would otherwise sit here forever. Give it a
     // short window to prove itself, then drop it — a socket that has not
     // spoken cannot be a seat, and holding one open is free for an attacker.
     const handshake = setTimeout(() => {
       if (!proven) ws.close(4008, "handshake timeout");
-    }, HANDSHAKE_MS);
+    }, this.opts.handshakeMs ?? HANDSHAKE_MS);
     handshake.unref?.();
 
     const send = (msg: ServerMessage) => ws.send(channel.wrap(encode(msg)));
@@ -231,10 +243,14 @@ export class RoomServer {
           return;
         }
         if (step.reply) ws.send(step.reply);
-        if (step.ready && !proven) {
-          proven = true;
-          clearTimeout(handshake);
-        }
+        // Deliberately not proven yet. Completing the key agreement shows only
+        // that someone knew the token when this frame was *first* composed —
+        // the client's half is a fixed MAC over its own public key and nonce,
+        // with nothing in it that this connection chose. So a captured opening
+        // frame replays perfectly, and the replayer holds a socket open
+        // forever if finishing the handshake were enough to stop the clock.
+        // Only a frame that opens under the agreed key proves the peer holds
+        // the private half, and a real client sends `hello` immediately.
         return;
       }
 
@@ -285,6 +301,7 @@ export class RoomServer {
 
     ws.onClose(() => {
       clearTimeout(handshake);
+      this.sockets.delete(ws);
       if (!joined) return;
       joined = false;
       this.peers.delete(connectionId);
@@ -912,6 +929,9 @@ export class RoomServer {
     this.routed = null;
     for (const peer of this.peers.values()) peer.close(1001, "room closed");
     this.peers.clear();
+    // Including the ones that never became seats.
+    for (const socket of this.sockets) socket.close(1001, "room closed");
+    this.sockets.clear();
     await this.transport.close();
     await this.transcript.close();
   }
