@@ -21,13 +21,16 @@ class TinyBackend implements AgentBackend {
   async close(): Promise<void> {}
 }
 
-async function startRelay(opts: Partial<{ maxRooms: number; maxPeers: number; joinsPerMinute: number }> = {}) {
+async function startRelay(
+  opts: Partial<{ maxRooms: number; maxPeers: number; joinsPerMinute: number; directory: boolean }> = {},
+) {
   const relay = new Relay({
     host: "127.0.0.1",
     port: 0,
     maxRooms: opts.maxRooms ?? 8,
     maxPeersPerRoom: opts.maxPeers ?? 8,
     joinsPerMinute: opts.joinsPerMinute ?? 60,
+    directory: opts.directory ?? false,
   });
   const port = await relay.listen();
   return { relay, port, url: `ws://127.0.0.1:${port}` };
@@ -273,4 +276,61 @@ test("a socket that connects and says nothing is dropped, not held open", async 
   await new Promise((r) => setTimeout(r, 150));
   assert.equal(server.room.list().length, 0, "it is not a participant");
   ws.close();
+});
+
+/* ---- the directory ----------------------------------------------- */
+
+test("a relay publishes no directory unless asked", async (t) => {
+  const { relay, port, url } = await startRelay();
+  const { server } = await startRoom(url, "hidden", "tok");
+  t.after(async () => {
+    await server.close();
+    await relay.close();
+  });
+
+  const res = await fetch(`http://127.0.0.1:${port}/rooms`);
+  assert.equal(res.status, 404, "room names are metadata, not a default disclosure");
+  assert.match(String((await res.json() as any).error), /does not publish a directory/);
+});
+
+test("with --directory it lists names, seats and age — and no secrets", async (t) => {
+  const { relay, port, url } = await startRelay({ directory: true });
+  const { server, joinUrl } = await startRoom(url, "listed", "the-token");
+  t.after(async () => {
+    await server.close();
+    await relay.close();
+  });
+
+  const alice = await connect(joinUrl, "alice", "the-token", "listed");
+  await new Promise((r) => setTimeout(r, 100));
+
+  const res = await fetch(`http://127.0.0.1:${port}/rooms`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { rooms: { name: string; seats: number; upSeconds: number }[] };
+
+  const room = body.rooms.find((r) => r.name === "listed")!;
+  assert.ok(room, "the room is listed");
+  assert.equal(room.seats, 1);
+  assert.ok(room.upSeconds >= 0 && room.upSeconds < 60);
+
+  const raw = JSON.stringify(body);
+  assert.ok(!raw.includes("the-token"), "listing a room never exposes the way into it");
+  assert.deepEqual(Object.keys(room).sort(), ["name", "seats", "upSeconds"], "and nothing else");
+
+  alice.conn.close();
+});
+
+test("a room leaves the directory when its host does", async (t) => {
+  const { relay, port, url } = await startRelay({ directory: true });
+  const { server } = await startRoom(url, "transient", null);
+  t.after(async () => await relay.close());
+
+  const before = (await (await fetch(`http://127.0.0.1:${port}/rooms`)).json()) as any;
+  assert.equal(before.rooms.length, 1);
+
+  await server.close();
+  for (let i = 0; i < 100 && relay.roomCount > 0; i++) await new Promise((r) => setTimeout(r, 20));
+
+  const after = (await (await fetch(`http://127.0.0.1:${port}/rooms`)).json()) as any;
+  assert.equal(after.rooms.length, 0);
 });

@@ -151,7 +151,7 @@ test("a local room serves the seat and a health check", async (t) => {
 });
 
 test("a relayed room serves the seat from the relay", async (t) => {
-  const relay = new Relay({ host: "127.0.0.1", port: 0, maxRooms: 4, maxPeersPerRoom: 4, joinsPerMinute: 60 });
+  const relay = new Relay({ host: "127.0.0.1", port: 0, maxRooms: 4, maxPeersPerRoom: 4, joinsPerMinute: 60, directory: false });
   const port = await relay.listen();
   const transport = new RelayTransport({ url: `ws://127.0.0.1:${port}`, roomName: "far" });
   const server = room(transport, "far", "tok");

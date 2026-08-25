@@ -16,6 +16,15 @@ export interface RelayOptions {
   maxPeersPerRoom: number;
   /** Join attempts allowed per room per minute. */
   joinsPerMinute: number;
+  /**
+   * Publish the names of hosted rooms at `GET /rooms`.
+   *
+   * Off by default: a room name is metadata, and a relay that lists them tells
+   * anyone who asks what this team is working on. Knowing a name grants
+   * nothing — the host still has to be satisfied — but it is a disclosure, so
+   * it is a choice rather than a default.
+   */
+  directory: boolean;
   onLog?: (line: string) => void;
 }
 
@@ -54,6 +63,27 @@ export class Relay {
       // A shared link lands here. Serving the seat from the relay is what makes
       // the link worth clicking for someone with nothing installed.
       if (serveWeb(pathname, res)) return;
+      if (pathname === "/rooms") {
+        if (!this.opts.directory) {
+          res.writeHead(404, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "this relay does not publish a directory" }));
+          return;
+        }
+        const now = Date.now();
+        res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(
+          JSON.stringify({
+            rooms: [...this.rooms.values()].map((r) => ({
+              name: r.name,
+              seats: r.peers.size,
+              // Age rather than a timestamp: enough to see what is live,
+              // without publishing exactly when a team started work.
+              upSeconds: Math.round((now - r.createdAt) / 1000),
+            })),
+          }),
+        );
+        return;
+      }
       if (pathname.startsWith("/health")) {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.0
+
+- **Four more coding CLIs**: `gemini`, `cursor` (`cursor-agent`), `aider` and
+  `amp`, each a small profile over the shared process driver. Ten backends now,
+  and `mpx share` detects any of them.
+- **Rooms say when a backend cannot carry a session.** Only `claude-code`,
+  `codex` and `opencode-json` report an id to resume; the plain-text CLIs start
+  fresh every turn, and a room now says so instead of letting you assume
+  otherwise.
+- **`mpx rooms`** lists what a relay is hosting — names, seats and age, never a
+  token. Opt in on the relay with `--directory`, since room names are metadata.
+- Test concurrency is pinned. Twelve test files on four cores, one launching
+  Chromium, would occasionally wedge the default fan-out — an intermittent hang
+  that had been mistaken for slowness.
+
 ## 0.7.0
 
 - **The Anthropic SDK is now optional.** It is 12MB and serves one backend —

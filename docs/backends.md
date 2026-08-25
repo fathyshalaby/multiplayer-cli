@@ -12,10 +12,29 @@ mpx backends     # what you have installed, and what `mpx share` would pick
 | `anthropic` | a Claude conversation owned by the room | per-token | **yes** |
 | `claude-code` | one long-lived `claude` process | per-token | no |
 | `codex` | `codex exec --json`, resuming the thread each turn | per item | no |
-| `copilot` | `copilot -p`, resuming the session each turn | raw stdout | no |
-| `opencode` | `opencode run`, resuming the session each turn | raw stdout | no |
+| `copilot` | `copilot -p` | raw stdout | no |
+| `opencode` | `opencode run` | raw stdout | no |
 | `opencode-json` | the same with `--format json` | per event | no |
+| `gemini` | `gemini -p` | raw stdout | no |
+| `cursor` | `cursor-agent -p` | raw stdout | no |
+| `aider` | `aider --message --yes-always` | raw stdout | no |
+| `amp` | `amp -x` | raw stdout | no |
 | `echo` | offline stand-in — no key, no spend | per-token | **yes** |
+
+### Not every CLI can carry a session
+
+`claude-code`, `codex` and `opencode-json` report a session or thread id, so mpx
+captures it and resumes the same conversation every turn. The plain-text ones
+have no id to capture: each turn starts the tool fresh. The room is still one
+conversation to the people in it, but not to the model.
+
+A room says so at the start rather than letting you find out:
+
+```
+  · aider starts a fresh session each turn — it cannot carry the conversation between them
+```
+
+`cursor` accepts `--resume <id>` if you have one to give it.
 
 With no `--backend`, `mpx share` picks whichever CLI it finds on your PATH, in
 that order, falling back to `ANTHROPIC_API_KEY` and then to `echo`.

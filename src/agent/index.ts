@@ -12,6 +12,10 @@ export type BackendName =
   | "copilot"
   | "opencode"
   | "opencode-json"
+  | "gemini"
+  | "cursor"
+  | "aider"
+  | "amp"
   | "echo";
 
 export const BACKENDS: BackendName[] = [
@@ -21,6 +25,10 @@ export const BACKENDS: BackendName[] = [
   "copilot",
   "opencode",
   "opencode-json",
+  "gemini",
+  "cursor",
+  "aider",
+  "amp",
   "echo",
 ];
 
@@ -32,8 +40,19 @@ export const BACKEND_HELP: Record<BackendName, string> = {
   copilot: "GitHub Copilot CLI (`copilot -p`). Plain text — it has no machine-readable mode.",
   opencode: "OpenCode (`opencode run`). Use --attach to ride a server other clients are already on.",
   "opencode-json": "OpenCode with `--format json`, for structured events instead of plain text.",
+  gemini: "Google Gemini CLI (`gemini -p`). Plain text; each turn starts fresh.",
+  cursor: "Cursor CLI (`cursor-agent -p`). Plain text; pass --resume to continue a thread.",
+  aider: "Aider (`aider --message --yes-always`). Applies edits and exits; each turn starts fresh.",
+  amp: "Amp (`amp -x`). Execute mode; each turn starts fresh.",
   echo: "Offline stand-in. No key, no spend — a full dry run of the room.",
 };
+
+/** Backends whose profile learns and reuses the tool's own session id. */
+export function carriesSession(backend: BackendName): boolean {
+  if (backend === "anthropic" || backend === "echo") return true;
+  if (backend === "claude-code") return true;
+  return PROFILES[backend]?.carriesSession ?? false;
+}
 
 /** Backends where the room can vote on the model's tool calls, not just its prompts. */
 export const GATES_TOOLS: BackendName[] = ["anthropic", "echo"];
@@ -68,7 +87,11 @@ export function createBackend(opts: CreateOptions): AgentBackend {
     case "codex":
     case "copilot":
     case "opencode":
-    case "opencode-json": {
+    case "opencode-json":
+    case "gemini":
+    case "cursor":
+    case "aider":
+    case "amp": {
       const profile = PROFILES[opts.backend]!;
       const extraArgs = [...opts.backendArgs];
       // Attaching points OpenCode at a server other clients may already be on,

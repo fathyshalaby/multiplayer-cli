@@ -94,6 +94,24 @@ ENTRYPOINT ["mpx", "relay", "--port", "7788", "--host", "0.0.0.0"]
 The relay holds no state worth backing up: rooms live only as long as their
 hosts are connected.
 
+### Seeing what is running
+
+```bash
+mpx relay --directory          # on the relay: publish the names it hosts
+mpx rooms wss://relay.example.com
+```
+
+```
+  design-review            2 seats   up 14m
+  amber-ridge-04           1 seat    up 3m
+
+  Names only — you still need the invite link to join one.
+```
+
+Off by default, because a room name is metadata: a relay that lists them tells
+anyone who asks what your team is working on. Knowing a name grants nothing —
+the host still has to be satisfied — but it is a disclosure, so it is a choice.
+
 Limits it enforces on its own: `--max-rooms`, `--max-peers` per room, and
 `--joins-per-minute`. Since it cannot authenticate a joiner, it rate-limits what
 it cannot check and lets the host reject the rest; a socket that connects and

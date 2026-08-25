@@ -37,6 +37,10 @@ export function detectBackend(): Detected {
     { bin: "codex", backend: "codex" },
     { bin: "opencode", backend: "opencode" },
     { bin: "copilot", backend: "copilot" },
+    { bin: "cursor-agent", backend: "cursor" },
+    { bin: "amp", backend: "amp" },
+    { bin: "gemini", backend: "gemini" },
+    { bin: "aider", backend: "aider" },
   ];
   for (const c of candidates) {
     if (onPath(c.bin)) return { backend: c.backend, why: `found \`${c.bin}\` on your PATH` };
@@ -60,6 +64,10 @@ export function installedBackends(): Set<string> {
     found.add("opencode-json");
   }
   if (onPath("copilot")) found.add("copilot");
+  if (onPath("cursor-agent")) found.add("cursor");
+  if (onPath("amp")) found.add("amp");
+  if (onPath("gemini")) found.add("gemini");
+  if (onPath("aider")) found.add("aider");
   if (process.env.ANTHROPIC_API_KEY) found.add("anthropic");
   found.add("echo");
   return found;
