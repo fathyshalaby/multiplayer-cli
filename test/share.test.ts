@@ -35,6 +35,7 @@ function room(transport: LocalWsTransport | RelayTransport, name: string, token:
     permissionMode: "acceptEdits",
     resume: null,
     attach: null,
+    pool: false,
     transcriptPath: null,
     backendFactory: () => new Quiet(),
   });

@@ -28,9 +28,9 @@ room decides together what actually gets sent.
 npm install -g multiplayer-cli
 ```
 
-Node 20.11+. Nobody needs an API key: the room runs on whatever coding CLI each
-person is already logged into. You can also join from a browser with nothing
-installed at all.
+Node 20.11+. No API key needed — the host's room runs on whatever coding CLI
+they are already logged into. Everyone else joins with `mpx`, or from a browser
+with nothing installed at all.
 
 ## The whole thing
 
@@ -74,10 +74,9 @@ so it stays out of access logs. Treat the link like a password.
                    └── votes ────────┘
 ```
 
-The host runs the room, and it decides *what* gets sent. Who *sends* it is a
-separate question: any seat can offer its own machine and subscription, and the
-room moves the session across when an account runs dry. See
-[Whose subscription pays](#whose-subscription-pays).
+The host runs the room. Participants are thin seats: they never talk to the
+model, they propose and vote, and the room streams one response to everyone.
+Every turn runs on the host's account, on the host's machine.
 
 **Typing is suggesting.** In a gated room, a line of text is a proposal, not a
 message. It gets an id (`#4`), a tally, and usually a countdown.
@@ -100,58 +99,6 @@ proposed what, who approved, who vetoed and why, what the model did. Replay it
 with `mpx transcript`.
 
 ---
-
-## Whose subscription pays
-
-Everyone in the room already pays for something — Claude Max, ChatGPT Plus,
-Copilot. The room runs on those, not on one person's API bill.
-
-When you join, your seat offers your own machine and its logged-in CLI:
-
-```
-    ● alice   host
-      claude-code ← running   4 turns
-    ● bob
-      codex ready
-    ● carol
-      claude-code (out of capacity)
-```
-
-The room stays on one account for as long as it can, because staying put is what
-keeps a session coherent — the underlying tool resumes its own thread and keeps
-its own cache. It moves only when an account says it is out of capacity:
-
-```
-  · alice's claude-code is out of capacity until 3:00:00 PM
-  ⇄ the session moved to bob's codex
-```
-
-That is the thing this buys you. "Claude usage limit reached, resets at 3pm"
-stops being the end of the afternoon and becomes a paragraph of handoff.
-
-**Nobody shares credentials.** Every account runs only on the machine it is
-logged in on. A turn that runs on bob's subscription runs on bob's laptop,
-under bob's login, on a prompt bob's room approved — mpx never sees, moves, or
-asks for anyone's token.
-
-Two things to know before you rely on it:
-
-- **A handoff is a summary, not a transplant.** The room owns the only complete
-  record of the session, so it carries that across — but the new tool has none
-  of the previous one's tool results or file state, and the recap tells it so
-  explicitly rather than letting it assume otherwise.
-- **Tools act on the runner's own checkout.** The shared object is the session,
-  not the filesystem. When a turn runs on bob's machine it reads and writes
-  bob's copy of the repo. Each runner's working directory is shown in `/who`
-  and `/status`, so this is visible rather than surprising.
-
-Opt out per seat with `--no-runner`, and the room falls back to the host's
-account. Pick which of your CLIs to offer with `--backend`, and where it runs
-with `--cwd`.
-
-Only a *capacity* failure hands off. A plain bug fails once and is reported —
-burning through everyone's account to prove the same error four times helps
-nobody.
 
 ## Decision policies
 
@@ -345,7 +292,7 @@ It starts the room and hands you the link to paste.
 | | |
 |---|---|
 | `mpx share` | start a room and print a link to send |
-| `mpx join <link>` | take a seat, and offer your own subscription to the room |
+| `mpx join <link>` | take a seat — the share link or the `ws://` URL both work |
 | `mpx relay` | run a relay, so hosts need no open port |
 | `mpx serve` | run a room with no local seat |
 | `mpx backends` | which AI CLIs you can use, and which are installed |
@@ -357,14 +304,55 @@ no auto-detected backend, explicit flags only.
 
 ---
 
+## Sharing the cost across accounts &nbsp;·&nbsp; experimental
+
+**Off by default, and the default is the one to reach for first.** Every turn
+runs on the host's account. That is one account, one machine, one place the
+tools act — and it is what most rooms want.
+
+When one account is not enough — a long session, a hard usage cap — the room can
+spread turns across the accounts already in it. Both sides opt in:
+
+```bash
+mpx share --pool          # host: allow it
+mpx join <link> --runner  # seat: offer your machine and subscription
+```
+
+The room then stays on one account for as long as it can, and moves only when an
+account reports it is out of capacity:
+
+```
+  · alice's claude-code is out of capacity until 3:00:00 PM
+  ⇄ the session moved to bob's codex
+```
+
+Nobody shares credentials: every account runs only on the machine it is logged
+in on, on prompts that machine's owner helped approve.
+
+It is marked experimental because of two real limits:
+
+- **A handoff is a summary, not a transplant.** The room carries the
+  conversation across, but the new tool has none of the previous one's tool
+  results or file state. The recap says so explicitly rather than letting the
+  model assume otherwise.
+- **Tools act on the runner's own checkout.** The shared object is the session,
+  not the filesystem — a turn on bob's machine touches bob's copy of the repo.
+  `/who` shows each runner's directory so this is visible, but it is a real
+  difference in behaviour, not a detail.
+
+Only a *capacity* failure hands off. A plain bug fails once and is reported;
+burning through everyone's account to produce the same error helps nobody.
+
+---
+
 ## Development
 
 ```bash
 npm install
 npm run build
-npm test          # 136 tests: gate logic, room rules, CLI adapters, relay,
-                  # share links, subscription failover, and the browser seat
-                  # driven in real Chromium
+npm test          # 137 tests: gate logic, room rules, CLI adapters, relay,
+                  # share links, account pooling, and the browser seat driven
+                  # in real Chromium
 ```
 
 The layout follows the seams:

@@ -28,7 +28,7 @@ class HostBackend implements AgentBackend {
   async close(): Promise<void> {}
 }
 
-async function startRoom() {
+async function startRoom(pool = true) {
   const host = new HostBackend();
   const transport = new LocalWsTransport({ host: "127.0.0.1", port: 0, roomName: "fo" });
   const server = new RoomServer({
@@ -47,6 +47,7 @@ async function startRoom() {
     permissionMode: "acceptEdits",
     resume: null,
     attach: null,
+    pool,
     transcriptPath: null,
     backendFactory: () => host,
   });
@@ -233,4 +234,36 @@ for (const o of out) process.stdout.write(JSON.stringify(o)+"\\n");
 
   bobConn.close();
   alice.conn.close();
+});
+
+
+/* ---- the simple default ------------------------------------------ */
+
+test("by default the room never leaves the host's account", async (t) => {
+  const { server, host, port } = await startRoom(false);
+  t.after(async () => await server.close());
+
+  const alice = await connect(port, "alice");
+  const bob = await connect(port, "bob");
+
+  // Bob volunteers anyway. Pooling is off, so the room declines and says why.
+  bob.conn.send({ t: "runner", backend: "codex", cwd: "/home/bob" } as ClientMessage);
+  const refusal = (await until(() => bob.log.find((m) => m.t === "error"), "the refusal")) as any;
+  assert.match(refusal.text, /runs every turn on the host's account/);
+  assert.match(refusal.text, /--pool/, "and how to change it, if that is what they want");
+
+  // No runner chatter reaches anyone: the simple room looks exactly as it did
+  // before any of this existed.
+  assert.equal(alice.log.filter((m) => m.t === "runners").length, 0);
+
+  // And a spent host is simply a failed turn, not a search for someone to bill.
+  host.limitAfter = 0;
+  alice.conn.send({ t: "propose", text: "go" });
+  const end = (await until(() => alice.log.find((m) => m.t === "turnEnd"), "the turn ending")) as any;
+  assert.match(String(end.error), /usage limit/);
+  assert.equal(bob.log.filter((m) => m.t === "runTurn").length, 0);
+  assert.equal(host.calls.length, 1, "asked once, not once per seat");
+
+  alice.conn.close();
+  bob.conn.close();
 });

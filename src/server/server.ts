@@ -32,6 +32,13 @@ export interface ServerOptions {
   resume: string | null;
   /** URL of an already-running agent server to attach to (OpenCode). */
   attach: string | null;
+  /**
+   * Experimental. Let seats offer their own machine and subscription, so the
+   * room can carry on when one account runs out of capacity. Off by default:
+   * the plain thing — every turn on the host's account — is what most rooms
+   * want, and it has one fewer moving part.
+   */
+  pool: boolean;
   transcriptPath: string | null;
   /** Injected in tests to avoid touching a real model. */
   backendFactory?: (opts: { participants: string[] }) => AgentBackend;
@@ -245,6 +252,9 @@ export class RoomServer {
       case "runner": {
         const p = this.room.get(pid);
         if (!p) return;
+        if (!this.opts.pool) {
+          return fail("this room runs every turn on the host's account — the host can pool accounts with --pool");
+        }
         if (p.role === "observer") return fail("observers cannot run turns");
         this.ensureRouted().add(pid, p.name, msg.backend, msg.cwd);
         return;
@@ -340,7 +350,9 @@ export class RoomServer {
   }
 
   private publishRunners(): void {
-    if (!this.routed) return;
+    // With pooling off there is exactly one account and nothing to choose
+    // between, so the room says nothing about runners at all.
+    if (!this.routed || !this.opts.pool) return;
     this.room.runners = this.routed.list();
     this.room.activeRunnerId = this.routed.active;
     this.broadcast({ t: "runners", runners: this.room.runners, activeId: this.room.activeRunnerId });

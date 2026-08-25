@@ -71,6 +71,7 @@ async function scene() {
     permissionMode: "acceptEdits",
     resume: null,
     attach: null,
+    pool: false,
     transcriptPath: null,
     backendFactory: () => backend,
   });

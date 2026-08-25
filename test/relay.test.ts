@@ -52,6 +52,7 @@ async function startRoom(relayUrl: string, roomName: string, token: string | nul
     permissionMode: "acceptEdits",
     resume: null,
     attach: null,
+    pool: false,
     transcriptPath: null,
     backendFactory: () => backend,
   });

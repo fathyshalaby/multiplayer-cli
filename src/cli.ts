@@ -22,7 +22,7 @@ import { normalizeJoinUrl } from "./util/url.js";
 import { detectBackend, installedBackends } from "./util/detect.js";
 import * as c from "./util/ansi.js";
 
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     return;
   }
   if (parsed.flags.has("help") || parsed.flags.has("h") || !parsed.command) {
-    usage();
+    usage(bool(parsed, "all", false));
     return;
   }
 
@@ -54,7 +54,7 @@ async function main(): Promise<void> {
     case "backends":
       return cmdBackends();
     case "help":
-      return usage();
+      return usage(bool(parsed, "all", false));
     default:
       console.error(`unknown command "${parsed.command}"\n`);
       usage();
@@ -116,6 +116,7 @@ function buildRoomConfig(p: Parsed, easy = false) {
       permissionMode: str(p, "permission-mode", "acceptEdits"),
       resume: str(p, "resume", "") || null,
       attach: str(p, "attach", "") || null,
+      pool: bool(p, "pool", false),
       transcriptPath,
     },
   };
@@ -144,6 +145,9 @@ function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServe
       }`,
     ),
     ...(s.attach ? [c.dim(`  attached to ${s.attach}`)] : []),
+    ...(s.pool
+      ? [c.yellow("  --pool: seats that join with --runner can take turns on their own account (experimental)")]
+      : []),
     "",
   ];
 
@@ -240,9 +244,9 @@ async function cmdJoin(p: Parsed): Promise<void> {
     ...(observer ? { observer: true } : {}),
   });
 
-  // Offer this machine's own logged-in CLI to the room, so turns can run on
-  // your subscription instead of the host's. Opt out with --no-runner.
-  const wantRunner = bool(p, "runner", !observer);
+  // Experimental, and off unless asked for: offer this machine's own logged-in
+  // CLI so turns can run on your subscription instead of the host's.
+  const wantRunner = bool(p, "runner", false) && !observer;
   const detected = str(p, "backend", "") || (wantRunner ? detectBackend().backend : "");
   const canRun = wantRunner && detected && detected !== "echo" && BACKENDS.includes(detected as BackendName);
 
@@ -256,9 +260,9 @@ async function cmdJoin(p: Parsed): Promise<void> {
       "",
       c.dim(`  connecting to ${url.replace(/\?t=.*/, "?t=…")} …`),
       ...(canRun
-        ? [c.dim(`  offering your ${detected} session — turns may run here, on your subscription`)]
+        ? [c.dim(`  offering your ${detected} session, if the host has pooling on`)]
         : wantRunner
-          ? [c.dim("  no coding CLI found here, so turns will run on the host's account")]
+          ? [c.yellow("  --runner: no coding CLI found here, so turns stay on the host's account")]
           : []),
     ],
     onExit: () => {
@@ -424,22 +428,30 @@ function fatal(msg: string): never {
   process.exit(1);
 }
 
-function usage(): void {
+/**
+ * Two tiers on purpose. Almost everyone needs three lines; burying those under
+ * forty flags they will never touch is how a good CLI stops feeling like one.
+ */
+function usage(all = false): void {
   console.log(`
 ${c.bold("multiplayer-cli")} — make your AI session multiplayer
 
-${c.bold("  mpx share")}                    start a shared session and print a link to send your team
+  ${c.green("mpx share")}                    start a session, get a link to send your team
   mpx join <link>              take a seat in someone's session
-  mpx relay [--port n]         run a relay, so hosts need no open port
-  mpx serve [options]          run a room with no local seat
-  mpx transcript <file>        replay a session's audit log
-  mpx backends                 which AI CLIs you can put in a room
-  mpx policies                 how the room can decide things
 
-${c.bold("The short version")}
-  ${c.green("mpx share")}                     you get a link
-  paste it in chat              they click it, or run the command it shows
-  type to propose, ${c.green("/y")} to agree   nothing is sent until the room agrees
+  Paste the link in chat. They click it, or run the command it shows.
+  Type to propose. ${c.green("/y")} to agree. Nothing is sent until the room agrees.
+
+  ${c.dim("mpx help --all")}               every option
+  ${c.dim("mpx backends")}                 which AI CLIs you can use
+  ${c.dim("mpx policies")}                 how the room can decide things
+`);
+  if (!all) return;
+
+  console.log(`${c.bold("More commands")}
+  mpx relay [--port n]         run a relay, so hosts need no open port
+  mpx serve [options]          run a room with no seat of your own
+  mpx transcript <file>        replay a session's audit log
 
 ${c.bold("Room options")}  (share / serve)
   --backend <name>       ${BACKENDS.join(" | ")}
@@ -459,18 +471,21 @@ ${c.bold("Who can reach it")}
   --open                 no token at all
   --port <n>  --host <addr>   pick them yourself
 
-${c.bold("Riding a session that already exists")}
+${c.bold("Seat options")}
+  --name <name>          your display name (remembered)
+  --observer             read-only: see everything, propose nothing
+
+${c.bold("Pointing at an existing session")}
   --resume <id>          continue a session/thread the backend already has
   --attach <url>         attach to a running \`opencode serve\`
   --backend-bin <path>   override the binary the backend launches
   --backend-arg <arg>    append a verbatim argument to it; repeatable
 
-${c.bold("Seat options")}
-  --name <name>          your display name (remembered)
-  --observer             read-only: see everything, propose nothing
-  --no-runner            do not offer your machine; turns run on the host's account
-  --backend <name>       which of your CLIs to offer (default: whichever you have)
-  --cwd <dir>            the directory your turns run in
+${c.bold("Sharing the cost")}  ${c.yellow("experimental")}
+  By default every turn runs on the host's account. These let the room
+  carry on when that account runs out of capacity:
+  --pool                 (host) allow seats to take turns on their own account
+  --runner               (seat) offer your machine and subscription to the room
 
 ${c.bold("In the session")}
   type anything          propose it to the room
