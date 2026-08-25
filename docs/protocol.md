@@ -1,0 +1,111 @@
+# Protocol
+
+Everything is newline-free JSON frames over one WebSocket. `src/protocol.ts` is
+the authority; this page is the map. Current version: **1** (`PROTOCOL_VERSION`).
+
+A client that speaks this can be a seat — the browser seat in
+`src/client/web/session.html` is about 200 lines of it.
+
+## Connecting
+
+```
+ws(s)://<host>/r/<room>?t=<token>      # relayed room
+ws(s)://<host>:<port>/?t=<token>       # direct room
+```
+
+Send `hello` first. Anything else before it is refused.
+
+```json
+{"t":"hello","name":"alice","protocol":1,"observer":false}
+```
+
+The room replies with `welcome`, carrying your `Participant` and a full
+`RoomSnapshot`. A protocol mismatch closes the socket with code `4004`; a bad
+token with `4003`.
+
+## Client → server
+
+| `t` | Meaning |
+|---|---|
+| `hello` | join |
+| `propose` | suggest something for the model |
+| `vote` | `yes` / `no` / `abstain`, with an optional `comment` |
+| `amend` | rewrite a pending proposal; clears its votes |
+| `withdraw` | take back your own proposal |
+| `chat` | talk to the room; never reaches the model |
+| `typing` | presence hint |
+| `interrupt` | stop the running turn |
+| `setPolicy` | `{preset?, overrides?}` — host only |
+| `rename` | change your display name |
+| `passMic` | hand over the mic in round-robin mode |
+| `sync` | ask for a fresh snapshot |
+| `ping` | keepalive; answered with `pong` |
+
+Runner messages — only meaningful in a `--pool` room — are `runner`,
+`runnerGone`, `runOut`, `runTool`, `runNotice`, `runEnd`.
+
+## Server → client
+
+| `t` | Meaning |
+|---|---|
+| `welcome` | you, plus the whole room |
+| `snapshot` | the whole room again |
+| `presence` | the roster changed |
+| `proposal` | a proposal was created, voted on, or amended — carries a `Tally` |
+| `resolved` | it was approved, rejected, withdrawn or expired |
+| `queued` | approved prompts waiting for the model |
+| `turnStart` | a turn is being sent, and who contributed to it |
+| `delta` | streamed model output (`text` or `thinking`) |
+| `toolResult` | a tool ran, with a short preview |
+| `turnEnd` | stop reason, usage, error |
+| `agent` | the session's state changed |
+| `chat` | side chat |
+| `policy` | the rules changed |
+| `notice` | something worth saying, at `info`/`warn`/`error` |
+| `error` | your last message was refused |
+| `runners` | the account roster, in a `--pool` room |
+| `runTurn` / `runCancel` | sent only to the seat asked to run a turn |
+
+## The shapes that matter
+
+```ts
+interface Proposal {
+  id: string;            // "#4" — quotable in chat
+  kind: "prompt" | "tool";
+  authorId: string;      // participant id, or "agent" for tool calls
+  authorName: string;
+  text: string;
+  tool?: ToolRequest;    // when kind === "tool"
+  createdAt: number;
+  deadline: number | null;   // when the timer decides
+  votes: Record<string, { vote: Vote; at: number; comment?: string }>;
+  edits: { at: number; by: string; byName: string; from: string }[];
+  status: "open" | "approved" | "sent" | "rejected" | "withdrawn" | "expired";
+  resolution?: string;   // human-readable, e.g. "vetoed: not on prod"
+}
+
+interface Tally {
+  yes: number; no: number; abstain: number;
+  pending: string[];     // who has not voted
+  electorate: number;    // connected, non-observer participants
+  need: number;          // yes votes still required
+  decision: "pending" | "approve" | "reject";
+  reason: string;
+}
+```
+
+## Rules a client should honour
+
+- **Bare text is a proposal, not a message.** That is the whole model.
+- **Do not compute the verdict yourself.** The room decides; a client renders
+  the `Tally` it is given. `src/core/gate.ts` is pure and takes `now` as an
+  argument, so it can be reused verbatim if you want the same arithmetic.
+- **A proposal id is stable**, so updates can replace an existing card.
+- **`delta` frames are fragments**, not lines. Buffer them.
+- **Send `ping` every ~25s.** Idle sockets get dropped by intermediaries.
+
+## The transcript
+
+The audit log is the same `ServerMessage` values, one per line, wrapped as
+`{"at": <ms>, "msg": {...}}`. Streamed text is coalesced to one entry per turn.
+`presence` and `pong` are not recorded.

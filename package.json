@@ -1,7 +1,7 @@
 {
   "name": "multiplayer-cli",
   "version": "0.5.0",
-  "description": "Make your AI sessions multiplayer: a shared terminal AI session your team prompts together, with group consent on every turn.",
+  "description": "Make your AI session multiplayer: a shared terminal AI session your team prompts together, with group consent on every turn.",
   "type": "module",
   "bin": {
     "mpx": "./dist/src/cli.js",
@@ -10,7 +10,8 @@
   "files": [
     "dist",
     "skills",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20.11"
@@ -30,7 +31,7 @@
     "pair-programming",
     "tui"
   ],
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
     "ws": "^8.21.3"
@@ -42,5 +43,14 @@
   },
   "optionalDependencies": {
     "playwright": "^1.50.0"
-  }
+  },
+  "author": "Fathy Shalaby (https://github.com/fathyshalaby)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fathyshalaby/multiplayer-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fathyshalaby/multiplayer-cli/issues"
+  },
+  "homepage": "https://github.com/fathyshalaby/multiplayer-cli#readme"
 }
