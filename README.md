@@ -17,9 +17,6 @@ room decides together what actually gets sent.
 
 Works with **Claude Code**, **Codex**, **GitHub Copilot CLI** and **OpenCode**.
 
-> Free for noncommercial use. Commercial use needs the licensor's permission —
-> see [Licence](#licence).
-
 ---
 
 ## Install
@@ -187,17 +184,5 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Licence
 
-**[PolyForm Noncommercial 1.0.0](./LICENSE)** — free to use, modify and share
-for any noncommercial purpose, including personal projects, research, education,
-charities and government.
-
-**Commercial use requires the licensor's written permission.** That includes
-internal use at a for-profit company, use in a paid product or service, and
-consulting delivered for a fee. Requests are welcome — open an issue.
-
-The software comes as is, with no warranty and no liability, as far as the law
-allows.
-
-> This makes multiplayer-cli *source-available*, not open source: the OSI
-> definition does not allow restricting commercial use. Nothing here is legal
-> advice.
+[MIT](./LICENSE) — use it, change it, ship it, sell it. Attribution is the only
+condition, and there is no warranty or liability.

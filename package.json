@@ -1,6 +1,6 @@
 {
   "name": "multiplayer-cli",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Make your AI session multiplayer: a shared terminal AI session your team prompts together, with group consent on every turn.",
   "type": "module",
   "bin": {
@@ -32,7 +32,7 @@
     "pair-programming",
     "tui"
   ],
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
     "ws": "^8.21.3"
