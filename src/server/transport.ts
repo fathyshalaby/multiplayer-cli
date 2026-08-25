@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
+import { createServer as createTlsServer } from "node:https";
 import { networkInterfaces } from "node:os";
 import { WebSocketServer, WebSocket } from "ws";
 import { PROTOCOL_VERSION } from "../protocol.js";
@@ -47,6 +48,8 @@ export interface LocalTransportOptions {
   host: string;
   port: number;
   roomName: string;
+  /** PEM cert and key, to serve wss:// and https:// without a reverse proxy. */
+  tls?: { cert: string; key: string } | null;
 }
 
 export class LocalWsTransport implements Transport {
@@ -55,10 +58,11 @@ export class LocalWsTransport implements Transport {
   private cb: ((peer: Peer) => void) | null = null;
   private opts: LocalTransportOptions;
   private bound = 0;
+  private secure = false;
 
   constructor(opts: LocalTransportOptions) {
     this.opts = opts;
-    this.http = createServer((req, res) => {
+    const handler = (req: IncomingMessage, res: import("node:http").ServerResponse) => {
       const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
       if (pathname.startsWith("/health")) {
         res.writeHead(200, { "content-type": "application/json" });
@@ -67,7 +71,11 @@ export class LocalWsTransport implements Transport {
       }
       if (serveWeb(pathname, res)) return;
       res.writeHead(404).end("multiplayer-cli: connect with `mpx join`");
-    });
+    };
+    this.http = opts.tls
+      ? (createTlsServer({ cert: opts.tls.cert, key: opts.tls.key }, handler) as unknown as Server)
+      : createServer(handler);
+    this.secure = Boolean(opts.tls);
     this.wss = new WebSocketServer({ server: this.http });
     this.wss.on("connection", (ws, req) => this.cb?.(socketPeer(ws, req)));
   }
@@ -92,11 +100,15 @@ export class LocalWsTransport implements Transport {
     const reachable = host === "0.0.0.0" ? lanAddress() ?? "127.0.0.1" : host;
 
     return {
-      joinUrl: (token) => wsUrl(reachable, port, token),
+      joinUrl: () =>
+        this.secure
+          ? `wss://${reachable}:${port}/r/${encodeURIComponent(this.opts.roomName)}`
+          : wsUrl(reachable, port, this.opts.roomName),
       // The invite has to name an address other people can reach; the host's
       // own seat should never take that trip.
-      selfUrl: (token) => wsUrl("127.0.0.1", port, token),
-      shareUrl: (token) => shareLink(`http://${reachable}:${port}`, this.opts.roomName, token),
+      selfUrl: () => wsUrl("127.0.0.1", port, this.opts.roomName),
+      shareUrl: (token) =>
+        shareLink(`${this.secure ? "https" : "http"}://${reachable}:${port}`, this.opts.roomName, token),
       detail: (token) => {
         const lines: string[] = [];
         if (host === "127.0.0.1") {
@@ -179,8 +191,7 @@ export class RelayTransport implements Transport {
     const hostUrl = `${base}/host?room=${encodeURIComponent(this.opts.roomName)}&protocol=${PROTOCOL_VERSION}`;
     await this.dial(hostUrl);
 
-    const wsJoin = (token: string | null) =>
-      `${base}/r/${encodeURIComponent(this.opts.roomName)}${token ? `?t=${token}` : ""}`;
+    const wsJoin = () => `${base}/r/${encodeURIComponent(this.opts.roomName)}`;
 
     return {
       joinUrl: wsJoin,
@@ -257,7 +268,7 @@ export class RelayTransport implements Transport {
         return;
       }
       if (msg.ctl === "open" && typeof msg.id === "string") {
-        const peer = new RelayPeer(msg.id, new URLSearchParams(String(msg.q ?? "")), (frame) => {
+        const peer = new RelayPeer(msg.id, new URLSearchParams(), (frame) => {
           this.ws?.send(JSON.stringify({ c: msg.id, d: frame }));
         }, (code, reason) => {
           this.ws?.send(JSON.stringify({ c: 0, ctl: "close", id: msg.id, code, reason }));
@@ -331,8 +342,9 @@ class RelayPeer implements Peer {
 /* helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-export function wsUrl(host: string, port: number, token: string | null): string {
-  return `ws://${host}:${port}/${token ? `?t=${token}` : ""}`;
+/** The dial URL. It never carries the token — that is the room's key. */
+export function wsUrl(host: string, port: number, room: string): string {
+  return `ws://${host}:${port}/r/${encodeURIComponent(room)}`;
 }
 
 export function lanAddress(): string | null {

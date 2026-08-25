@@ -1,6 +1,6 @@
 {
   "name": "multiplayer-cli",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Make your AI session multiplayer: a shared terminal AI session your team prompts together, with group consent on every turn.",
   "type": "module",
   "bin": {

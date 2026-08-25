@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.0
+
+Sessions now cross the internet safely.
+
+- **End-to-end encryption.** Every frame is sealed with AES-256-GCM under a key
+  derived from the room token. A relay, a proxy, or anything else in the path
+  moves ciphertext it cannot read.
+- **The token never travels.** It was previously sent as `?t=` in the
+  WebSocket URL, which meant a relay operator learned the room's password.
+  Authentication is now decryption: a seat proves it belongs by producing a
+  frame the room can open.
+- **TLS without a reverse proxy** — `--tls-cert` / `--tls-key` on both
+  `mpx relay` and `mpx share`.
+- **`mpx join` refuses plaintext to a public address** when a room has no token
+  and therefore no encryption. Override with `--insecure`.
+- A socket that connects without proving itself is dropped after ten seconds
+  rather than held open.
+- The browser seat encrypts too, via WebCrypto. Browsers only expose that in a
+  secure context, so it needs `https` (or `localhost`) and says so plainly
+  instead of downgrading.
+- Protocol version 2. A v1 client cannot talk to a v2 room.
+
 ## 0.5.1
 
 - Relicensed to **MIT**. The previous release shipped PolyForm Noncommercial;

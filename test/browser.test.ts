@@ -80,7 +80,7 @@ async function scene() {
 }
 
 function terminalSeat(url: string, name: string) {
-  const conn = new Connection({ url, name, reconnect: false });
+  const conn = new Connection({ url, room: "clickable", token: "sekrit", name, reconnect: false });
   const log: ServerMessage[] = [];
   conn.on("message", (m: ServerMessage) => log.push(m));
   return new Promise<{ conn: Connection; log: ServerMessage[] }>((res, rej) => {
@@ -126,9 +126,11 @@ test("clicking the shared link gets you a working seat", async (t) => {
   page.on("pageerror", (e: Error) => errors.push(e.message));
   await page.goto(share);
 
-  // The landing page tells a terminal user exactly what to run.
-  const cmd = await page.textContent("#cmd");
-  assert.match(String(cmd), /^npx multiplayer-cli join ws:\/\/127\.0\.0\.1:\d+\/r\/clickable\?t=sekrit$/);
+  // The landing page tells a terminal user exactly what to run: the share link
+  // itself, so the token stays in the fragment rather than moving to a query.
+  const cmd = String(await page.textContent("#cmd"));
+  assert.match(cmd, /^npx multiplayer-cli join http:\/\/127\.0\.0\.1:\d+\/s\/clickable#t=sekrit$/);
+  assert.ok(!cmd.includes("?t="), "never as a query parameter");
 
   // And offers a seat right there.
   await page.fill("#gate-name", "dana");
@@ -165,6 +167,28 @@ test("clicking the shared link gets you a working seat", async (t) => {
 
   assert.deepEqual(errors, [], "the page threw nothing");
   alice.conn.close();
+});
+
+test("a browser seat with the wrong link never gets into the room", async (t) => {
+  const b = await browser();
+  if (!b) {
+    t.skip("no browser available");
+    return;
+  }
+  const { relay, server, backend, share } = await scene();
+  t.after(async () => {
+    await b.close();
+    await server.close();
+    await relay.close();
+  });
+
+  const page = await b.newPage();
+  await page.goto(share.replace("#t=sekrit", "#t=not-the-token"));
+  await page.fill("#gate-name", "mallory");
+  await page.click("#enter");
+  await until(async () => (await page.textContent("#gate-err"))?.match(/refused|authenticate/), "the refusal");
+  assert.equal(server.room.list().length, 0, "never a participant");
+  assert.equal(backend.prompts.length, 0);
 });
 
 test("the browser can veto, with a reason that is recorded", async (t) => {

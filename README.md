@@ -94,6 +94,11 @@ room and never touches the model or the context window.
 proposed what, who approved, who vetoed and why. Replay it with
 `mpx transcript`.
 
+**Traffic is end-to-end encrypted.** The token in the share link is the key, not
+a password sent to a server — so a relay, a proxy or anything else in the path
+moves ciphertext it cannot read, and the token itself never goes on the wire at
+all. See [Security model](./docs/security.md).
+
 ---
 
 ## Documentation
@@ -158,13 +163,14 @@ It starts the room and hands you the link to paste.
 ```bash
 npm install
 npm run build
-npm test          # 137 tests, no API key and no coding CLI required
+npm test          # 152 tests, no API key and no coding CLI required
 ```
 
 The layout follows the seams:
 
 ```
 src/protocol.ts       the wire contract
+src/core/crypto.ts    the sealed frames everything else travels in
 src/core/gate.ts      the consent decision — pure, no clock of its own
 src/core/room.ts      participants, proposals, timers, queue
 src/server/transport  how seats arrive: a local port, or a relay dialled out to

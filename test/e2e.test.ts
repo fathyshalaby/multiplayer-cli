@@ -93,7 +93,9 @@ async function startRoom(preset: string, opts: Partial<{ token: string | null }>
 
 function connect(port: number, name: string, token?: string, observer = false): Promise<Seat> {
   const conn = new Connection({
-    url: `ws://127.0.0.1:${port}/${token ? `?t=${token}` : ""}`,
+    url: `ws://127.0.0.1:${port}/r/e2e`,
+    room: "e2e",
+    token: token ?? null,
     name,
     observer,
     reconnect: false,
@@ -301,15 +303,20 @@ test("anyone may interrupt when the policy says so", async (t) => {
   bob.conn.close();
 });
 
-test("a wrong join token is refused", async (t) => {
-  const { server, port } = await startRoom("pair", { token: "the-real-token" });
+test("a wrong token cannot get in, and never reaches the room to try", async (t) => {
+  const { server, backend, port } = await startRoom("pair", { token: "the-real-token" });
   t.after(async () => await server.close());
-  await assert.rejects(
-    () => connect(port, "mallory", "guessing"),
-    /unauthorized|closed/,
-  );
+
+  // There is no token on the wire to check — a frame either decrypts or it
+  // does not, and a wrong one is closed before it becomes a participant.
+  await assert.rejects(() => connect(port, "mallory", "guessing"), /unauthorized|closed|did not authenticate/);
+  assert.equal(server.room.list().length, 0, "mallory never joined the room");
+
   const ok = await connect(port, "alice", "the-real-token");
   assert.equal(ok.name, "alice");
+  ok.conn.send({ t: "propose", text: "encrypted end to end" });
+  await until(ok.log, (m) => m.t === "turnEnd", "the turn finishing");
+  assert.equal(backend.prompts.length, 1);
   ok.conn.close();
 });
 

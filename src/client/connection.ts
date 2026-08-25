@@ -2,6 +2,8 @@ import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import type { ClientMessage, ServerMessage } from "../protocol.js";
 import { PROTOCOL_VERSION, decode, encode } from "../protocol.js";
+import { deriveKey } from "../core/crypto.js";
+import { SecureChannel } from "../core/secure.js";
 
 export interface ConnectionOptions {
   url: string;
@@ -9,6 +11,13 @@ export interface ConnectionOptions {
   observer?: boolean;
   /** Reconnect with backoff when the room drops. */
   reconnect?: boolean;
+  /**
+   * The room token. Used only as an encryption key — it is never sent, so a
+   * relay or a proxy in the path never sees it.
+   */
+  token?: string | null;
+  /** Room name, which keys the encryption alongside the token. */
+  room?: string;
 }
 
 /**
@@ -23,14 +32,28 @@ export class Connection extends EventEmitter {
   private heartbeat: NodeJS.Timeout | null = null;
   /** Typed before the socket opened, or during a reconnect. Sent on open. */
   private outbox: ClientMessage[] = [];
+  private channel: SecureChannel;
 
   constructor(opts: ConnectionOptions) {
     super();
     this.opts = opts;
+    this.channel = this.freshChannel();
+  }
+
+  /** A reconnect is a new link, so it gets new sequence numbers. */
+  private freshChannel(): SecureChannel {
+    const { token, room } = this.opts;
+    return new SecureChannel(token ? deriveKey(token, room ?? "") : null);
+  }
+
+  /** True when this link is end-to-end encrypted. */
+  get encrypted(): boolean {
+    return this.channel.encrypted;
   }
 
   connect(): void {
     this.closedByUs = false;
+    this.channel = this.freshChannel();
     const ws = new WebSocket(this.opts.url, { handshakeTimeout: 10_000 });
     this.ws = ws;
 
@@ -45,12 +68,20 @@ export class Connection extends EventEmitter {
       this.heartbeat = setInterval(() => this.send({ t: "ping" }), 25_000);
       this.heartbeat.unref?.();
       const queued = this.outbox.splice(0);
-      for (const msg of queued) ws.send(encode(msg));
+      for (const msg of queued) ws.send(this.channel.wrap(encode(msg)));
       this.emit("open");
     });
 
     ws.on("message", (raw) => {
-      const msg = decode<ServerMessage>(raw.toString());
+      const plain = this.channel.unwrap(raw.toString());
+      if (plain === null) {
+        // Either the room has a different token, or something in the path is
+        // rewriting frames. Neither is worth continuing through.
+        this.emit("warn", "a frame from the room did not authenticate — wrong token, or something is tampering with the connection");
+        this.close();
+        return;
+      }
+      const msg = decode<ServerMessage>(plain);
       if (msg) this.emit("message", msg);
     });
 
@@ -77,7 +108,7 @@ export class Connection extends EventEmitter {
 
   send(msg: ClientMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(encode(msg));
+      this.ws.send(this.channel.wrap(encode(msg)));
       return;
     }
     // Hold it rather than lose it — but never queue a heartbeat or a stale

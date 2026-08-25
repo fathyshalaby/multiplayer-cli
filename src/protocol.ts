@@ -6,7 +6,11 @@
  * That is what makes the session genuinely shared instead of N private ones.
  */
 
-export const PROTOCOL_VERSION = 1;
+/**
+ * Bumped to 2 when room traffic became end-to-end encrypted and the token
+ * stopped travelling in the URL. A v1 client cannot talk to a v2 room.
+ */
+export const PROTOCOL_VERSION = 2;
 
 export type Role = "owner" | "member" | "observer";
 export type Vote = "yes" | "no" | "abstain";

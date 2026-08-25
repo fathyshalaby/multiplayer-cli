@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
 import type { ClientMessage, Proposal, RoomPolicy, ServerMessage, ToolRequest } from "../protocol.js";
 import { PROTOCOL_VERSION, decode, encode } from "../protocol.js";
@@ -9,6 +8,8 @@ import { createBackend, multiplayerSystemPrompt, type BackendName } from "../age
 import type { AgentBackend, TurnResult } from "../agent/types.js";
 import { id } from "../util/id.js";
 import type { Peer, Transport, TransportInfo } from "./transport.js";
+import { deriveKey } from "../core/crypto.js";
+import { SecureChannel } from "../core/secure.js";
 import { RoutedBackend } from "./runners.js";
 
 export interface ServerOptions {
@@ -116,45 +117,68 @@ export class RoomServer {
     return this.info?.detail(this.opts.token) ?? [];
   }
 
-  private authorized(peer: Peer): boolean {
-    if (!this.opts.token) return true;
-    const supplied = peer.query.get("t") ?? "";
-    const a = Buffer.from(supplied);
-    const b = Buffer.from(this.opts.token);
-    // Compare in constant time, and only when the lengths already match so
-    // timingSafeEqual does not throw on a short guess. This runs at the host
-    // even when a relay carried the connection here — the relay never sees it.
-    return a.length === b.length && timingSafeEqual(a, b);
-  }
-
+  /**
+   * Authentication is decryption.
+   *
+   * There is no token on the wire to check: a seat proves it belongs by
+   * producing a frame this room's key can open. A wrong token, a tampered
+   * frame and a replayed one all fail identically, and all mean the same
+   * thing — this did not come from the room.
+   */
   private onPeer(ws: Peer): void {
-    if (!this.authorized(ws)) {
-      ws.send(encode({ t: "error", text: "bad or missing room token" }));
-      ws.close(4003, "unauthorized");
-      return;
-    }
-
+    const channel = new SecureChannel(
+      this.opts.token ? deriveKey(this.opts.token, this.opts.roomName) : null,
+    );
     const connectionId = ws.id;
     let joined = false;
+    let proven = !channel.encrypted;
 
-    ws.onMessage((raw) => {
+    // Authentication is now "produce a frame that decrypts", so a peer that
+    // connects and says nothing would otherwise sit here forever. Give it a
+    // short window to prove itself, then drop it — a socket that has not
+    // spoken cannot be a seat, and holding one open is free for an attacker.
+    const handshake = setTimeout(() => {
+      if (!proven) ws.close(4008, "handshake timeout");
+    }, HANDSHAKE_MS);
+    handshake.unref?.();
+
+    const send = (msg: ServerMessage) => ws.send(channel.wrap(encode(msg)));
+    const secure: Peer = {
+      id: ws.id,
+      query: ws.query,
+      send: (frame) => ws.send(channel.wrap(frame)),
+      close: (code, reason) => ws.close(code, reason),
+      onMessage: () => {},
+      onClose: (cb) => ws.onClose(cb),
+    };
+
+    ws.onMessage((frame) => {
+      const raw = channel.unwrap(frame);
+      if (raw === null) {
+        // Say as little as possible: an attacker learns only that it failed.
+        clearTimeout(handshake);
+        ws.close(4003, "unauthorized");
+        return;
+      }
+      if (!proven) {
+        proven = true;
+        clearTimeout(handshake);
+      }
       const msg = decode<ClientMessage>(raw);
       if (!msg) {
-        ws.send(encode({ t: "error", text: "malformed message" }));
+        send({ t: "error", text: "malformed message" });
         return;
       }
       if (!joined) {
         if (msg.t !== "hello") {
-          ws.send(encode({ t: "error", text: "say hello first" }));
+          send({ t: "error", text: "say hello first" });
           return;
         }
         if (msg.protocol !== PROTOCOL_VERSION) {
-          ws.send(
-            encode({
-              t: "error",
-              text: `protocol mismatch: room speaks v${PROTOCOL_VERSION}, you speak v${msg.protocol}. Update multiplayer-cli.`,
-            }),
-          );
+          send({
+            t: "error",
+            text: `protocol mismatch: room speaks v${PROTOCOL_VERSION}, you speak v${msg.protocol}. Update multiplayer-cli.`,
+          });
           ws.close(4004, "protocol");
           return;
         }
@@ -167,21 +191,15 @@ export class RoomServer {
           role: msg.observer ? "observer" : isFirst ? "owner" : "member",
           connectionId,
         });
-        this.peers.set(connectionId, ws);
-        ws.send(
-          encode({
-            t: "welcome",
-            you: p,
-            room: this.room.snapshot(),
-            motd: this.motd(),
-          }),
-        );
+        this.peers.set(connectionId, secure);
+        send({ t: "welcome", you: p, room: this.room.snapshot(), motd: this.motd() });
         return;
       }
-      this.handle(connectionId, msg, ws);
+      this.handle(connectionId, msg, secure);
     });
 
     ws.onClose(() => {
+      clearTimeout(handshake);
       if (!joined) return;
       joined = false;
       this.peers.delete(connectionId);
@@ -501,6 +519,9 @@ export class RoomServer {
     await this.transcript.close();
   }
 }
+
+/** How long a new socket has to prove it belongs before it is dropped. */
+const HANDSHAKE_MS = 10_000;
 
 function err(fail: (t: string) => void, e: string | null): void {
   if (e) fail(e);
