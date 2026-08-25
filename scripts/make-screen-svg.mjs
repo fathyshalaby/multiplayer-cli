@@ -47,6 +47,9 @@ const FINAL_DWELL = 5.5;
 /** What `Screen.draw` ends every completed frame with: park cursor, show it. */
 const FRAME_END = "\x1b[?25h";
 
+/** Erase the whole display — the seat entering, or somebody typing `/clear`. */
+const WIPE = "\x1b[2J";
+
 /** One cell: a character plus the SGR state that was active when written. */
 const blankCell = () => ({ ch: " ", fg: null, bold: false, dim: false });
 
@@ -111,6 +114,11 @@ function replay(bytes, timing) {
     const rest = feed(grid, text.slice(from), row, col, sgr);
     ({ row, col, sgr } = rest);
     pending = rest.pending;
+
+    // A wipe of the whole screen means the session started over as far as a
+    // viewer is concerned — `/clear`, or the seat taking the terminal. What
+    // came before it is not part of what is being shown.
+    if (text.includes(WIPE)) shots.length = 0;
   }
   shots.push({ at: clock + FINAL_DWELL, frame: snapshot(grid) });
   return shots;
@@ -242,9 +250,12 @@ let frames = shots
 // Drop frames identical to the one before: nothing changed, nothing to show.
 frames = frames.filter((f, i) => i === 0 || JSON.stringify(f) !== JSON.stringify(frames[i - 1]));
 // A loop that opens on a nearly empty terminal wastes the first thing anyone
-// sees. Skip ahead to where the room actually exists.
-const filled = (f) => f.filter((row) => row.length).length;
-while (frames.length > 1 && filled(frames[0]) < ROWS / 3) frames.shift();
+// sees. Counting *rows* is not enough — a frame with an empty transcript still
+// has a full sidebar and reads as populated. Count the characters actually on
+// screen and measure each frame against the fullest one.
+const weight = (f) => f.reduce((n, row) => n + row.reduce((m, r) => m + r.text.trim().length, 0), 0);
+const fullest = Math.max(...frames.map(weight));
+while (frames.length > 1 && weight(frames[0]) < fullest * 0.4) frames.shift();
 // Keep the last MAX_FRAMES: the end of a session is the part worth showing.
 if (frames.length > MAX_FRAMES) frames = frames.slice(frames.length - MAX_FRAMES);
 if (!frames.length) {
