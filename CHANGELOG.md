@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.1
+
+- **Fixed: `mpx --version` had been reporting 0.8.0 for two releases.** The
+  number was written down in two places, so of course they disagreed. It is now
+  read from the manifest, and a test fails if the two ever differ again.
+- `mpx policies` shows the landing gate alongside prompts and tools — lanes
+  have had their own gate since 0.9.0 and this is where people look for it.
+- **Releases are cut by CI.** `.github/workflows/release.yml` tags the commit,
+  writes the release notes from this changelog, and attaches the npm tarball
+  and the packaged extension. It publishes to npm and Open VSX when the
+  `NPM_TOKEN` and `OVSX_TOKEN` secrets exist, and says so plainly when they do
+  not — rather than failing, or pretending it published something.
+- **CI now runs the extension inside a real VS Code**, headless under xvfb.
+  The stubbed-API tests prove its logic; only a real editor proves VS Code will
+  load the bundle and activate it — which is exactly the failure that once got
+  past every other test.
+
 ## 0.10.0
 
 - **A full-screen terminal seat.** The model's reply on the left; who is here,

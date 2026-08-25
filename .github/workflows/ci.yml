@@ -44,6 +44,22 @@ jobs:
           name: multiplayer-cli-vsix
           path: extension/multiplayer-cli.vsix
 
+  # The stubbed-API tests prove the extension's logic; only a real editor can
+  # prove VS Code will load the bundle and activate it. That has broken before,
+  # and every other test passed while it was broken.
+  vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/build-extension.mjs
+      - run: xvfb-run -a npm run test:vscode
+
   browser:
     runs-on: ubuntu-latest
     steps:

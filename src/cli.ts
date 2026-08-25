@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { resolve, join } from "node:path";
+import { dirname, resolve, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { RoomServer } from "./server/server.js";
 import { LocalWsTransport, RelayTransport, type Transport } from "./server/transport.js";
@@ -24,13 +25,33 @@ import { parseJoinTarget, isLocalHost } from "./util/url.js";
 import { detectBackend, installedBackends } from "./util/detect.js";
 import * as c from "./util/ansi.js";
 
-const VERSION = "0.8.0";
+/**
+ * The version is read from the manifest rather than written down twice.
+ *
+ * It was written down twice, and `mpx --version` spent two releases claiming
+ * to be 0.8.0. A number that has to be updated by hand in two places is a
+ * number that will disagree with itself.
+ */
+function version(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  // dist/src/cli.js -> ../../package.json; src/cli.ts -> ../package.json
+  for (const rel of ["../../package.json", "../package.json"]) {
+    try {
+      const raw = readFileSync(join(here, rel), "utf8");
+      const v = JSON.parse(raw)?.version;
+      if (typeof v === "string") return v;
+    } catch {
+      /* try the next one */
+    }
+  }
+  return "unknown";
+}
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
 
   if (parsed.flags.has("version") || parsed.flags.has("v")) {
-    console.log(VERSION);
+    console.log(version());
     return;
   }
   if (parsed.flags.has("help") || parsed.flags.has("h") || !parsed.command) {
@@ -536,13 +557,16 @@ function cmdPolicies(): void {
   for (const name of presetNames()) {
     const p = resolvePreset(name)!;
     console.log(
-      `  ${c.bold(name.padEnd(13))} prompts: ${describeGate(p.prompt).padEnd(22)} tools: ${describeGate(p.tool).padEnd(22)} auto-allow: ${p.autoAllowToolRisks.join(",") || "none"}`,
+      `  ${c.bold(name.padEnd(13))} prompts: ${describeGate(p.prompt).padEnd(22)} tools: ${describeGate(p.tool).padEnd(22)} landing: ${describeGate(p.lane).padEnd(12)} auto-allow: ${p.autoAllowToolRisks.join(",") || "none"}`,
     );
   }
   console.log("");
+  console.log(c.dim("  landing is the vote on which lane of a /race gets merged. No preset gives it a"));
+  console.log(c.dim("  timer: silence is consent for a question, not for a merge."));
+  console.log("");
   console.log(c.dim("  override any of it:  mpx host --policy team --set mode=quorum --set quorum=3 --set timeout=90s"));
   console.log(c.dim("  keys: mode, quorum, veto, timeout, minYes, proposerAutoYes, soloBypass,"));
-  console.log(c.dim("        tool.mode, tool.timeout, …, autoAllow, interrupt, merge, attribute"));
+  console.log(c.dim("        tool.*, lane.*, autoAllow, interrupt, merge, attribute"));
   console.log("");
 }
 
