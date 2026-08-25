@@ -20,6 +20,8 @@ Works with **Claude Code**, **Codex**, **Copilot CLI**, **OpenCode**, **Gemini**
 
 ---
 
+**[multiplayer-cli.dev →](https://fathyshalaby.github.io/multiplayer-cli/)** — the short version, with the demo running.
+
 ## Install
 
 ```bash

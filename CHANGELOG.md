@@ -2,6 +2,14 @@
 
 ## 0.11.0
 
+- **A landing page** at `docs/index.html`, served by GitHub Pages from `/docs`.
+  Self-contained: no build step, no framework, no external request except the
+  recording it embeds.
+- **The README demo is recorded, not drawn.** `scripts/record-demo.sh` drives
+  the real binary in a real pty — two people in a room, an agent stopping at a
+  fork, the room picking a direction — and renders the frames to an animated
+  SVG. The demo cannot drift from the tool, because it is the tool's output.
+
 - **Crossroads.** The agent stops at a genuine fork and asks the room which way
   to go, before spending the work. Every other gate is the room interrupting
   the agent; this is the agent asking the room, which is the one direction the

@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>multiplayer-cli — nothing reaches the model until the room agrees</title>
+<meta name="description" content="Share one AI coding session with your team. Everyone proposes, the room votes, and nothing reaches the model until it agrees. Works with Claude Code, Codex, Copilot, Cursor, Gemini, Aider and more.">
+<link rel="canonical" href="https://fathyshalaby.github.io/multiplayer-cli/">
+<meta property="og:title" content="multiplayer-cli">
+<meta property="og:description" content="One AI session, several people, and a vote in front of it. Nothing reaches the model until the room agrees.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://fathyshalaby.github.io/multiplayer-cli/">
+<meta property="og:image" content="https://fathyshalaby.github.io/multiplayer-cli/media/session.svg">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root{
+    --bg:#0e1016; --panel:#171a22; --line:#242833; --fg:#d7dae3; --dim:#878da0;
+    --cyan:#66c2cd; --green:#a7cc8c; --blue:#71bef2; --amber:#dbab79; --red:#e88388; --violet:#d290e4;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,sans-serif;
+       -webkit-font-smoothing:antialiased}
+  a{color:var(--cyan)}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 22px}
+  code,kbd{font-family:var(--mono);font-size:.92em}
+
+  /* ---- hero ---- */
+  header{padding:70px 0 20px;text-align:center}
+  .logo{font-family:var(--mono);font-size:14px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase}
+  h1{font-size:clamp(30px,5.2vw,52px);line-height:1.12;margin:16px 0 0;letter-spacing:-.02em;font-weight:650}
+  h1 .hl{color:var(--cyan)}
+  .sub{margin:18px auto 0;max-width:620px;color:var(--dim);font-size:clamp(16px,2.1vw,19px)}
+  .cta{margin:30px 0 8px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .btn{display:inline-block;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:600;font-size:15px}
+  .btn.primary{background:var(--cyan);color:#0b1013}
+  .btn.ghost{border:1px solid var(--line);color:var(--fg)}
+  .btn:hover{filter:brightness(1.1)}
+  .install{font-family:var(--mono);font-size:14px;color:var(--dim);margin-top:14px}
+  .install b{color:var(--green);font-weight:400}
+
+  /* ---- the recording ---- */
+  .shot{margin:34px 0 10px}
+  .shot img{width:100%;height:auto;display:block;border-radius:10px;border:1px solid var(--line)}
+  .caption{color:var(--dim);font-size:13.5px;text-align:center;margin-top:10px}
+
+  /* ---- sections ---- */
+  section{padding:54px 0;border-top:1px solid var(--line)}
+  h2{font-size:clamp(22px,3.2vw,30px);margin:0 0 10px;letter-spacing:-.01em;font-weight:640}
+  .lede{color:var(--dim);max-width:660px;margin:0 0 26px}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:18px 19px}
+  .card h3{margin:0 0 7px;font-size:16.5px;font-weight:640}
+  .card p{margin:0;color:var(--dim);font-size:14.5px;line-height:1.6}
+  .card .k{font-family:var(--mono);font-size:12px;color:var(--dim);display:block;margin-bottom:9px;letter-spacing:.04em}
+  .c-cyan{border-left:3px solid var(--cyan)} .c-blue{border-left:3px solid var(--blue)}
+  .c-green{border-left:3px solid var(--green)} .c-amber{border-left:3px solid var(--amber)}
+
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+      padding:15px 17px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.6;margin:0}
+  pre .c{color:var(--dim)} pre .g{color:var(--green)} pre .b{color:var(--blue)}
+  pre .y{color:var(--amber)} pre .v{color:var(--violet)} pre .r{color:var(--red)}
+
+  .two{display:grid;gap:22px;grid-template-columns:1fr 1fr;align-items:start}
+  @media(max-width:760px){.two{grid-template-columns:1fr}}
+
+  table{width:100%;border-collapse:collapse;font-size:14.5px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.05em}
+  td code{color:var(--cyan)}
+
+  .backends{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+  .chip{font-family:var(--mono);font-size:13px;padding:5px 11px;border:1px solid var(--line);
+        border-radius:999px;color:var(--dim);background:var(--panel)}
+  .chip b{color:var(--fg);font-weight:400}
+
+  footer{border-top:1px solid var(--line);padding:36px 0 60px;color:var(--dim);font-size:14px}
+  footer a{color:var(--dim)}
+  .foot{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="logo">multiplayer-cli</div>
+    <h1>One AI session, several people,<br><span class="hl">and a vote in front of it.</span></h1>
+    <p class="sub">
+      Your team shares a single coding-agent session. Everyone can propose;
+      nothing reaches the model until the room agrees.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/fathyshalaby/multiplayer-cli">Get it on GitHub</a>
+      <a class="btn ghost" href="#how">How it works</a>
+    </div>
+    <div class="install"><b>npx multiplayer-cli share</b> — then paste the link in chat</div>
+  </header>
+
+  <div class="shot">
+    <img src="media/session.svg" width="951" height="568"
+         alt="A recorded multiplayer-cli session: someone asks for the pagination layer to be rewritten, the agent stops at a fork and asks whether the v1 API should keep working, the room picks a direction, and the agent carries on from there.">
+    <p class="caption">A real recording — the demo is generated by driving the actual binary, so it cannot drift from the tool.</p>
+  </div>
+</div>
+
+<section id="how">
+  <div class="wrap">
+    <h2>Typing is suggesting</h2>
+    <p class="lede">
+      In a shared room, what you type is a proposal, not a message. It goes on the
+      table with a vote attached. That one change is the whole idea.
+    </p>
+    <div class="two">
+<pre><span class="c">alice ❯</span> make the retry logic exponential
+  <span class="b">▸</span> <b>#4</b> alice proposes
+      <span class="c">[1/3 ✓ · 2 pending · 41s left]</span>  /y #4  /n #4
+
+<span class="c">bob ❯</span> /n #4 not before the release
+  <span class="r">✗</span> <b>#4</b> rejected <span class="c">— vetoed: not before the release</span></pre>
+      <div>
+        <p class="lede" style="margin-bottom:14px">
+          Six ways for a room to decide, from <code>open</code> to unanimous. A veto
+          carries a reason, and the reason is recorded with the decision.
+        </p>
+        <table>
+          <tr><th>Preset</th><th>Ships when</th></tr>
+          <tr><td><code>pair</code></td><td>everyone consents, 20s timer, any veto stops it</td></tr>
+          <tr><td><code>team</code></td><td>a majority, plus veto</td></tr>
+          <tr><td><code>strict</code></td><td>unanimous, no timers, no assumptions</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Four gates, in both directions</h2>
+    <p class="lede">
+      Three of them are the room deciding what the agent may do. The fourth is the
+      agent asking the room — which turns out to be the one that was missing.
+    </p>
+    <div class="grid">
+      <div class="card c-cyan">
+        <span class="k">BEFORE · prompt</span>
+        <h3>Should we send this?</h3>
+        <p>Every message is agreed before the model ever sees it. Amend it and the votes reset, because consent was given to different words.</p>
+      </div>
+      <div class="card c-amber">
+        <span class="k">DURING · tool</span>
+        <h3>May it run this?</h3>
+        <p>The room can vote on the model's own tool calls. A declined tool is a decision, not an error — the model is told to explain what it would have done.</p>
+      </div>
+      <div class="card c-green">
+        <span class="k">AFTER · lane</span>
+        <h3>Which result lands?</h3>
+        <p>Race one prompt across parallel git worktrees, then vote on the diffs. Approving one merges it; the branches nobody took are kept, never deleted.</p>
+      </div>
+      <div class="card c-blue">
+        <span class="k">SIDEWAYS · crossroads</span>
+        <h3>Which way should I go?</h3>
+        <p>The agent stops at a real fork and asks, before spending the work. <em>“Must v1 keep working?”</em> is a decision, not a fact — no amount of running the code settles it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Try it three ways at once</h2>
+    <p class="lede">
+      A vote decides whether to send a prompt. It cannot tell you whether the answer
+      was any good — nobody knows that until somebody tries. So try all of them.
+    </p>
+<pre><span class="c">alice ❯</span> /race 3 make the retry logic exponential
+
+  <span class="g">✓</span> A  3 files +64 -12        <span class="g">⚑</span> #4 land lane A
+  <span class="c">·</span>  B  finished without changing anything
+  <span class="g">✓</span> C  1 file +8 -3           <span class="g">⚑</span> #5 land lane C</pre>
+    <p class="lede" style="margin-top:20px">
+      Each lane is a real agent on its own branch in its own worktree. The room reads
+      the diffs and picks one; approving it merges. Voting them all down is a legitimate
+      answer too — you found out that none of the three approaches was right, in the
+      time it took to try one.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Everyone gets a seat</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="k">TERMINAL</span>
+        <h3>Full-screen panes</h3>
+        <p>The reply on the left; the roster, open votes and lanes standing beside it. Falls back to one scrolling column in a pipe or a narrow window.</p>
+      </div>
+      <div class="card">
+        <span class="k">BROWSER</span>
+        <h3>Nothing to install</h3>
+        <p>Click the link and you're in — a full participant with a vote, not a spectator. The same slash commands work.</p>
+      </div>
+      <div class="card">
+        <span class="k">EDITOR</span>
+        <h3>VS Code &amp; Cursor</h3>
+        <p>A panel with the roster, pending decisions and the model's reply. Also VSCodium and Windsurf, via Open VSX.</p>
+      </div>
+    </div>
+
+    <h2 style="margin-top:42px">On whichever agent you already pay for</h2>
+    <p class="lede">
+      The host runs the session on a CLI they're already signed into. Nobody else
+      needs an API key — or anything installed at all.
+    </p>
+    <div class="backends">
+      <span class="chip"><b>claude-code</b></span><span class="chip"><b>codex</b></span>
+      <span class="chip"><b>copilot</b></span><span class="chip"><b>cursor</b></span>
+      <span class="chip"><b>gemini</b></span><span class="chip"><b>opencode</b></span>
+      <span class="chip"><b>aider</b></span><span class="chip"><b>amp</b></span>
+      <span class="chip"><b>anthropic</b></span><span class="chip"><b>echo</b> <span style="opacity:.6">offline demo</span></span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Reachable, and sealed</h2>
+    <div class="two">
+      <div>
+        <p class="lede">
+          People are in different countries and behind different NATs. The host dials
+          out to a relay, so nobody opens a port and nobody sets up a tunnel.
+        </p>
+        <p class="lede">
+          The relay is a dumb pipe. Room traffic is end-to-end encrypted with a key
+          agreed between the seats, so a relay, a proxy or a TLS terminator moves
+          ciphertext it cannot read.
+        </p>
+      </div>
+      <div>
+        <table>
+          <tr><th>Property</th><th></th></tr>
+          <tr><td>Handshake</td><td>ephemeral ECDH P-256, authenticated by the room token</td></tr>
+          <tr><td>Frames</td><td>AES-256-GCM, sequence numbers inside the ciphertext</td></tr>
+          <tr><td>The token</td><td><b>never travels</b> — a seat proves it has one by producing a frame the room can open</td></tr>
+          <tr><td>A leaked link</td><td>cannot decrypt traffic recorded earlier</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Start a room</h2>
+<pre><span class="c"># the host — on whichever agent they already have</span>
+<span class="g">npx multiplayer-cli share</span>
+
+  <span class="b">amber-ridge-04</span>   claude-code  ·  ~/work/api
+  prompts: majority+veto 45s
+
+  Send this to your team:
+    <span class="g">http://192.168.1.20:7777/s/amber-ridge-04#t=Kf3nQ8vLm2</span>
+
+<span class="c"># anywhere in the world, through a relay</span>
+<span class="g">npx multiplayer-cli share --relay wss://relay.example.com</span></pre>
+    <div class="cta" style="justify-content:flex-start;margin-top:26px">
+      <a class="btn primary" href="https://github.com/fathyshalaby/multiplayer-cli">Read the source</a>
+      <a class="btn ghost" href="https://github.com/fathyshalaby/multiplayer-cli/blob/main/docs/getting-started.md">Getting started</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot">
+    <div>MIT licensed · <a href="https://github.com/fathyshalaby/multiplayer-cli">fathyshalaby/multiplayer-cli</a></div>
+    <div>
+      <a href="https://github.com/fathyshalaby/multiplayer-cli/blob/main/docs/crossroads.md">Crossroads</a> ·
+      <a href="https://github.com/fathyshalaby/multiplayer-cli/blob/main/docs/racing.md">Racing</a> ·
+      <a href="https://github.com/fathyshalaby/multiplayer-cli/blob/main/docs/security.md">Security</a> ·
+      <a href="https://github.com/fathyshalaby/multiplayer-cli/blob/main/docs/protocol.md">Protocol</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

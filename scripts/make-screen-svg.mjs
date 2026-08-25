@@ -241,6 +241,10 @@ let frames = shots
   .filter((f) => f.some((row) => row.length));
 // Drop frames identical to the one before: nothing changed, nothing to show.
 frames = frames.filter((f, i) => i === 0 || JSON.stringify(f) !== JSON.stringify(frames[i - 1]));
+// A loop that opens on a nearly empty terminal wastes the first thing anyone
+// sees. Skip ahead to where the room actually exists.
+const filled = (f) => f.filter((row) => row.length).length;
+while (frames.length > 1 && filled(frames[0]) < ROWS / 3) frames.shift();
 // Keep the last MAX_FRAMES: the end of a session is the part worth showing.
 if (frames.length > MAX_FRAMES) frames = frames.slice(frames.length - MAX_FRAMES);
 if (!frames.length) {

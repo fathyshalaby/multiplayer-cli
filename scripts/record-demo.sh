@@ -47,23 +47,40 @@ STUB
 chmod +x "$work/agent"
 
 fifo="$work/keys"
-mkfifo "$fifo"
+bobfifo="$work/bob"
+mkfifo "$fifo" "$bobfifo"
+TOKEN=demotoken
+PORT=7788
 
 ( cd "$repo" && script -q -e --log-out "$work/raw" --log-timing "$work/timing" \
     -c "stty rows $ROWS cols $COLS; node '$ROOT/dist/src/cli.js' share \
-        --local --policy solo --room amber-ridge-04 --no-transcript --lanes 0 \
+        --local --policy pair --room amber-ridge-04 --no-transcript --lanes 0 \
+        --port $PORT --token $TOKEN --name alice \
         --backend codex --backend-bin '$work/agent'" < "$fifo" >/dev/null 2>&1 ) &
 pid=$!
+sleep 3
+
+# A second person, so the recording shows what the tool is actually for. Their
+# seat is plain and discarded; only the host's screen is being recorded.
+( node "$ROOT/dist/src/cli.js" join "ws://127.0.0.1:$PORT/r/amber-ridge-04?t=$TOKEN" \
+    --name bob --plain < "$bobfifo" >/dev/null 2>&1 ) &
+bobpid=$!
 
 exec 3> "$fifo"
-type_line() { printf '%s\n' "$1" >&3; sleep "${2:-3}"; }
+exec 4> "$bobfifo"
+alice() { printf '%s\n' "$1" >&3; sleep "${2:-3}"; }
+bob()   { printf '%s\n' "$1" >&4; sleep "${2:-3}"; }
 
-sleep 3.5
-type_line 'rewrite the pagination layer to support cursors' 5
-type_line '/fork' 3
-type_line '/y #3' 6
-type_line '/quit' 1.5
+sleep 2
+alice 'rewrite the pagination layer to support cursors' 3.5
+bob '/y' 5
+alice '/fork' 3.5
+bob '/y #3' 2.5
+alice '/y #3' 6
+alice '/quit' 1.5
 exec 3>&-
+exec 4>&-
+kill "$bobpid" 2>/dev/null || true
 wait "$pid" 2>/dev/null || true
 
 node "$ROOT/scripts/make-screen-svg.mjs" "$work/raw" "$work/timing" "$OUT" --rows "$ROWS" --cols "$COLS"
