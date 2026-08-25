@@ -5,6 +5,7 @@ import { LocalWsTransport, RelayTransport, type Transport } from "./server/trans
 import { Relay } from "./server/relay.js";
 import { Connection } from "./client/connection.js";
 import { Tui } from "./client/tui.js";
+import { LocalRunner } from "./client/runner.js";
 import {
   applyOverrides,
   describeGate,
@@ -21,7 +22,7 @@ import { normalizeJoinUrl } from "./util/url.js";
 import { detectBackend, installedBackends } from "./util/detect.js";
 import * as c from "./util/ansi.js";
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
@@ -227,27 +228,64 @@ async function cmdServe(p: Parsed): Promise<void> {
 
 async function cmdJoin(p: Parsed): Promise<void> {
   const target = p.positional[0] ?? (typeof p.flags.get("url") === "string" ? String(p.flags.get("url")) : null);
-  if (!target) fatal("usage: mpx join <url>   (the host prints one when the room starts)");
+  if (!target) fatal("usage: mpx join <link>   (the host prints one when the room starts)");
 
   const url = normalizeJoinUrl(target!);
   const name = str(p, "name", defaultName());
+  const observer = bool(p, "observer", false);
   const conn = new Connection({
     url,
     name,
     reconnect: true,
-    ...(bool(p, "observer", false) ? { observer: true } : {}),
+    ...(observer ? { observer: true } : {}),
   });
 
-  const tui = new Tui({
+  // Offer this machine's own logged-in CLI to the room, so turns can run on
+  // your subscription instead of the host's. Opt out with --no-runner.
+  const wantRunner = bool(p, "runner", !observer);
+  const detected = str(p, "backend", "") || (wantRunner ? detectBackend().backend : "");
+  const canRun = wantRunner && detected && detected !== "echo" && BACKENDS.includes(detected as BackendName);
+
+  let runner: LocalRunner | null = null;
+
+  const tui: Tui = new Tui({
     connection: conn,
     name,
-    banner: ["", c.dim(`  connecting to ${url.replace(/\?t=.*/, "?t=…")} …`)],
+    ...(canRun ? { onServerMessage: (msg) => runner!.handle(msg) } : {}),
+    banner: [
+      "",
+      c.dim(`  connecting to ${url.replace(/\?t=.*/, "?t=…")} …`),
+      ...(canRun
+        ? [c.dim(`  offering your ${detected} session — turns may run here, on your subscription`)]
+        : wantRunner
+          ? [c.dim("  no coding CLI found here, so turns will run on the host's account")]
+          : []),
+    ],
     onExit: () => {
+      void runner?.close();
       tui.close();
       conn.close();
       process.exit(0);
     },
   });
+
+  if (canRun) {
+    runner = new LocalRunner({
+      connection: conn,
+      backend: detected as BackendName,
+      cwd: resolve(str(p, "cwd", process.cwd())),
+      model: str(p, "model", ""),
+      maxTokens: num(p, "max-tokens", 32000),
+      showThinking: bool(p, "thinking", false),
+      backendBin: str(p, "backend-bin", ""),
+      backendArgs: multi(p, "backend-arg"),
+      permissionMode: str(p, "permission-mode", "acceptEdits"),
+      resume: str(p, "resume", "") || null,
+      attach: str(p, "attach", "") || null,
+      onNotice: (text) => tui.notice(text),
+    });
+    conn.on("open", () => runner!.offer());
+  }
 
   conn.connect();
   tui.start();
@@ -430,6 +468,9 @@ ${c.bold("Riding a session that already exists")}
 ${c.bold("Seat options")}
   --name <name>          your display name (remembered)
   --observer             read-only: see everything, propose nothing
+  --no-runner            do not offer your machine; turns run on the host's account
+  --backend <name>       which of your CLIs to offer (default: whichever you have)
+  --cwd <dir>            the directory your turns run in
 
 ${c.bold("In the session")}
   type anything          propose it to the room

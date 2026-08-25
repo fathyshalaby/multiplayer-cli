@@ -13,6 +13,7 @@ import type {
   ToolRequest,
   Vote,
 } from "../protocol.js";
+import type { RunnerInfo } from "../protocol.js";
 import { evaluate, type GateContext } from "./gate.js";
 import { Counter, id } from "../util/id.js";
 import { clonePolicy } from "./policy.js";
@@ -62,6 +63,9 @@ export class Room extends EventEmitter {
     backend: "",
   };
   turnCount = 0;
+  /** Populated by the server from the routed backend, for display only. */
+  runners: RunnerInfo[] = [];
+  activeRunnerId: string | null = null;
   /** Set false on close so late timers cannot resurrect a dead room. */
   private alive = true;
 
@@ -522,6 +526,8 @@ export class Room extends EventEmitter {
       micHolderId: this.micHolder()?.id ?? null,
       transcriptPath: this.transcriptPath,
       turnCount: this.turnCount,
+      runners: this.runners,
+      activeRunnerId: this.activeRunnerId,
     };
   }
 

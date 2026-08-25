@@ -60,6 +60,21 @@ timer where silence counts as consent. Change it for the situation:
 already has. `--attach <url>` points OpenCode at a running `opencode serve`
 other clients may already be on.
 
+## Whose subscription pays
+
+Every seat offers its own machine and logged-in CLI. The room stays on one
+account while it works, and hands the session to the next available one when an
+account reports a usage limit — carrying the conversation across itself. So
+"limit reached, resets at 3pm" is a handoff, not the end of the session.
+
+Nobody shares credentials: each account only ever runs on the machine it is
+logged in on. Say `--no-runner` to keep your seat out of the pool.
+
+Two things worth telling the user before they lean on it: a handoff carries a
+summary, not the previous tool's state; and tools act on the *runner's* own
+checkout, so a turn that lands on someone else's machine touches their copy of
+the repo. `/who` and `/status` show each runner's directory.
+
 ## Joining someone else's
 
 ```bash
@@ -86,7 +101,8 @@ mpx transcript .mpx/<room>.jsonl --votes
 
 ## Worth saying out loud
 
-- Only the host needs credentials and a coding CLI installed.
+- Nobody needs an API key. The room runs on whichever CLI each person is
+  already logged into, and joining from a browser needs nothing installed.
 - Tools run on the **host's** machine in `--cwd`, and everyone in the room can
   propose work that touches it. Invite accordingly; `--policy strict` puts every
   write and every command in front of a unanimous vote.

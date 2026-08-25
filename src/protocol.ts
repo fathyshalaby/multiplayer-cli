@@ -119,6 +119,30 @@ export interface Tally {
   reason: string;
 }
 
+/**
+ * A seat that can execute turns on its own machine, under its own login.
+ *
+ * The room's conversation is shared; the compute behind it does not have to be.
+ * A runner spends its owner's subscription, so no single account carries a
+ * whole room and a usage limit is a handoff rather than a dead stop.
+ */
+export interface RunnerInfo {
+  /** Participant id, or `"local"` for the host's own in-process backend. */
+  id: string;
+  name: string;
+  backend: string;
+  /** The runner's own working directory — tools act on *their* checkout. */
+  cwd: string;
+  busy: boolean;
+  /** Reported a usage or rate limit; skipped until it clears. */
+  exhausted: boolean;
+  /** When the limit is expected to lift, if the tool said so. */
+  exhaustedUntil: number | null;
+  /** Turns this runner has taken for the room. */
+  turns: number;
+  local: boolean;
+}
+
 export interface AgentStatus {
   state: "idle" | "thinking" | "streaming" | "tool" | "error";
   turnId: string | null;
@@ -141,6 +165,9 @@ export interface RoomSnapshot {
   micHolderId: string | null;
   transcriptPath: string | null;
   turnCount: number;
+  runners: RunnerInfo[];
+  /** Whoever ran the last turn, and will run the next one unless they cannot. */
+  activeRunnerId: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -160,7 +187,24 @@ export type ClientMessage =
   | { t: "rename"; name: string }
   | { t: "passMic"; toId: string }
   | { t: "sync" }
-  | { t: "ping" };
+  | { t: "ping" }
+  /* A seat offering its own machine and subscription to the room. */
+  | { t: "runner"; backend: string; cwd: string }
+  | { t: "runnerGone" }
+  | { t: "runOut"; turnId: string; kind: "text" | "thinking"; text: string }
+  | { t: "runTool"; turnId: string; toolUseId: string; ok: boolean; preview: string }
+  | { t: "runNotice"; turnId: string; text: string }
+  | {
+      t: "runEnd";
+      turnId: string;
+      stopReason: string;
+      usage?: Record<string, number>;
+      error?: string;
+      /** The turn failed because this account is out of capacity, not broken. */
+      limited?: boolean;
+      /** When the limit lifts, if the tool said so. */
+      until?: number | null;
+    };
 
 /* ------------------------------------------------------------------ */
 /* server -> client                                                    */
@@ -181,6 +225,10 @@ export type ServerMessage =
   | { t: "chat"; fromId: string; fromName: string; text: string; at: number }
   | { t: "policy"; policy: RoomPolicy; byName: string }
   | { t: "notice"; level: "info" | "warn" | "error"; text: string }
+  | { t: "runners"; runners: RunnerInfo[]; activeId: string | null }
+  /* Sent only to the seat that is being asked to run this turn. */
+  | { t: "runTurn"; turnId: string; prompt: string }
+  | { t: "runCancel"; turnId: string }
   | { t: "error"; text: string }
   | { t: "pong" };
 

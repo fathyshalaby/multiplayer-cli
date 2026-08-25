@@ -19,6 +19,14 @@ export interface TurnResult {
   stopReason: string;
   usage?: Record<string, number>;
   error?: string;
+  /**
+   * The turn failed because this account is out of capacity — a usage cap, a
+   * rate limit, exhausted credit. The room can hand the session to someone
+   * else's subscription instead of giving up.
+   */
+  limited?: boolean;
+  /** When that capacity is expected back, if the tool said so. */
+  until?: number | null;
 }
 
 export interface AgentBackend {

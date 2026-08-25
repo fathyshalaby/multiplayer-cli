@@ -16,6 +16,8 @@ import { commandNames, helpLines, parse } from "./commands.js";
 export interface TuiOptions {
   connection: Connection;
   name: string;
+  /** Intercepts the runner protocol before the UI sees it. */
+  onServerMessage?: (msg: ServerMessage) => boolean;
   /** Printed once under the banner, e.g. the join command for teammates. */
   banner?: string[];
   onExit: () => void;
@@ -65,7 +67,10 @@ export class Tui {
     this.rl.on("SIGINT", () => this.onSigint());
     this.rl.on("close", () => this.opts.onExit());
 
-    this.conn.on("message", (msg: ServerMessage) => this.onMessage(msg));
+    this.conn.on("message", (msg: ServerMessage) => {
+      if (this.opts.onServerMessage?.(msg)) return;
+      this.onMessage(msg);
+    });
     this.conn.on("warn", (text: string) => this.print(c.yellow(`  ! ${text}`)));
     this.conn.on("closed", (why: string) => {
       this.print(c.red(`  ✕ left the room (${why})`));
@@ -76,6 +81,11 @@ export class Tui {
   start(): void {
     if (this.opts.banner) for (const line of this.opts.banner) this.print(line);
     this.redraw();
+  }
+
+  /** Surface something that happened locally, e.g. in this seat's runner. */
+  notice(text: string): void {
+    this.print(c.dim(`  · ${text}`));
   }
 
   /* ---------------------------------------------------------------- */
@@ -115,6 +125,8 @@ export class Tui {
       if (open) bits.push(c.yellow(`${open} open`));
       if (room.queued.length) bits.push(c.cyan(`${room.queued.length} queued`));
       if (room.agent.state !== "idle") bits.push(c.magenta(room.agent.state));
+      const active = room.runners?.find((r) => r.id === room.activeRunnerId);
+      if (active && room.runners.length > 1) bits.push(c.dim(`on ${active.name}`));
     }
     const status = bits.length ? c.dim(`[${bits.join(" · ")}] `) : "";
     const who = this.me ? this.color(this.me)(this.me.name) : this.opts.name;
@@ -252,6 +264,23 @@ export class Tui {
       case "agent":
         if (this.room) this.room.agent = msg.status;
         this.redraw();
+        return;
+
+      case "runners": {
+        if (!this.room) return;
+        const before = this.room.activeRunnerId;
+        this.room.runners = msg.runners;
+        this.room.activeRunnerId = msg.activeId;
+        if (before && msg.activeId && before !== msg.activeId) {
+          const now = msg.runners.find((r) => r.id === msg.activeId);
+          if (now) this.print(c.yellow(`  ⇄ the session moved to ${now.name}'s ${now.backend}`));
+        }
+        this.redraw();
+        return;
+      }
+
+      case "runTurn":
+      case "runCancel":
         return;
 
       case "chat": {
@@ -411,8 +440,9 @@ export class Tui {
           `  interrupt  ${r.policy.interrupt}`,
           `  turns      ${r.turnCount}   queued: ${r.queued.length}`,
           `  transcript ${r.transcriptPath ?? "(off)"}`,
-          "",
         );
+        this.printRunners();
+        this.print("");
         return;
       }
       case "policy": {
@@ -463,6 +493,7 @@ export class Tui {
   private printRoster(): void {
     const ps = this.room?.participants ?? [];
     const mic = this.room?.micHolderId;
+
     const lines = ps.map((p) => {
       const marks = [
         p.role === "owner" ? c.yellow("host") : p.role === "observer" ? c.gray("observer") : "",
@@ -472,6 +503,32 @@ export class Tui {
       return `    ${this.color(p)("●")} ${p.name}${marks.length ? c.dim(`  ${marks.join(" ")}`) : ""}`;
     });
     this.print(c.dim(`  ${ps.length} in the room`), ...lines);
+    this.printRunners();
+  }
+
+  /**
+   * Runners are listed on their own rather than folded into the roster: a seat
+   * may offer no account, the host machine may have no seat, and one person can
+   * be both. Pairing them by name hides exactly the cases worth seeing.
+   */
+  private printRunners(): void {
+    const runners = this.room?.runners ?? [];
+    if (!runners.length) return;
+    const activeId = this.room?.activeRunnerId;
+
+    this.print(
+      "",
+      c.dim(runners.length === 1 ? "  running on 1 account" : `  running on ${runners.length} accounts`),
+      ...runners.map((r) => {
+        const state = r.exhausted
+          ? c.red(`out of capacity${r.exhaustedUntil ? ` until ${new Date(r.exhaustedUntil).toLocaleTimeString()}` : ""}`)
+          : r.id === activeId
+            ? c.green("running")
+            : c.dim("ready");
+        const turns = r.turns ? c.dim(`  ${r.turns} turn${r.turns === 1 ? "" : "s"}`) : "";
+        return `    ${r.id === activeId ? c.green("▸") : " "} ${r.name.padEnd(16)} ${r.backend.padEnd(14)} ${state}${turns}\n      ${c.dim(r.cwd)}`;
+      }),
+    );
   }
 
   private onSigint(): void {

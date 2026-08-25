@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { hostname } from "node:os";
 import type { ClientMessage, Proposal, RoomPolicy, ServerMessage, ToolRequest } from "../protocol.js";
 import { PROTOCOL_VERSION, decode, encode } from "../protocol.js";
 import { Room } from "../core/room.js";
@@ -8,6 +9,7 @@ import { createBackend, multiplayerSystemPrompt, type BackendName } from "../age
 import type { AgentBackend, TurnResult } from "../agent/types.js";
 import { id } from "../util/id.js";
 import type { Peer, Transport, TransportInfo } from "./transport.js";
+import { RoutedBackend } from "./runners.js";
 
 export interface ServerOptions {
   /** How seats reach this room: a local port, or a relay the host dials out to. */
@@ -47,6 +49,7 @@ export class RoomServer {
   private peers = new Map<string, Peer>();
   private transcript: Transcript;
   private backend: AgentBackend | null = null;
+  private routed: RoutedBackend | null = null;
   private opts: ServerOptions;
   private running = false;
   private abort: AbortController | null = null;
@@ -175,6 +178,7 @@ export class RoomServer {
       if (!joined) return;
       joined = false;
       this.peers.delete(connectionId);
+      this.routed?.remove(connectionId);
       this.room.leave(connectionId);
     });
   }
@@ -238,6 +242,34 @@ export class RoomServer {
         if ("error" in next) return fail(next.error);
         return void err(fail, this.room.setPolicy(pid, next.policy));
       }
+      case "runner": {
+        const p = this.room.get(pid);
+        if (!p) return;
+        if (p.role === "observer") return fail("observers cannot run turns");
+        this.ensureRouted().add(pid, p.name, msg.backend, msg.cwd);
+        return;
+      }
+      case "runnerGone":
+        this.routed?.remove(pid);
+        return;
+      case "runOut":
+        this.routed?.onOut(pid, msg.turnId, msg.kind, msg.text);
+        return;
+      case "runTool":
+        this.routed?.onTool(pid, msg.turnId, msg.toolUseId, msg.ok, msg.preview);
+        return;
+      case "runNotice":
+        this.routed?.onRunnerNotice(pid, msg.turnId, msg.text);
+        return;
+      case "runEnd":
+        this.routed?.onEnd(pid, msg.turnId, {
+          stopReason: msg.stopReason,
+          ...(msg.usage ? { usage: msg.usage } : {}),
+          ...(msg.error ? { error: msg.error } : {}),
+          ...(msg.limited ? { limited: true } : {}),
+          ...(msg.until !== undefined ? { until: msg.until } : {}),
+        });
+        return;
       case "sync":
         ws.send(encode({ t: "snapshot", room: this.room.snapshot() }));
         return;
@@ -270,6 +302,50 @@ export class RoomServer {
   /* the shared AI session                                             */
   /* ---------------------------------------------------------------- */
 
+  /**
+   * The room's backend is always the router; the host's own CLI is simply its
+   * first runner. That way a turn can move to someone else's subscription
+   * without the room's turn logic knowing anything changed.
+   */
+  private ensureRouted(): RoutedBackend {
+    if (this.routed) return this.routed;
+    const local = this.ensureBackend();
+    const routed = new RoutedBackend({
+      dispatch: {
+        start: (runnerId, turnId, prompt) => this.toPeer(runnerId, { t: "runTurn", turnId, prompt }),
+        cancel: (runnerId, turnId) => this.toPeer(runnerId, { t: "runCancel", turnId }),
+      },
+      onChange: () => this.publishRunners(),
+      onNotice: (text) => this.room.notice("warn", text),
+    });
+    routed.addLocal(this.hostName(), local, this.opts.cwd);
+    this.routed = routed;
+    this.publishRunners();
+    return routed;
+  }
+
+  /**
+   * The local runner belongs to the machine hosting the room, not to whoever
+   * happened to join first — with `mpx serve` there may be no host seat at all,
+   * and labelling it after a participant makes two different accounts look
+   * like one.
+   */
+  private hostName(): string {
+    return hostname() || "host";
+  }
+
+  private toPeer(runnerId: string, msg: ServerMessage): void {
+    const peer = this.peers.get(runnerId);
+    if (peer) peer.send(encode(msg));
+  }
+
+  private publishRunners(): void {
+    if (!this.routed) return;
+    this.room.runners = this.routed.list();
+    this.room.activeRunnerId = this.routed.active;
+    this.broadcast({ t: "runners", runners: this.room.runners, activeId: this.room.activeRunnerId });
+  }
+
   private ensureBackend(): AgentBackend {
     if (this.backend) return this.backend;
     const participants = this.room.list().map((p) => p.name);
@@ -301,7 +377,7 @@ export class RoomServer {
     const batch = this.room.takeQueued();
     if (!batch.length) return;
 
-    const backend = this.ensureBackend();
+    const backend = this.ensureRouted();
     const turnId = id("turn", 6);
     const prompt = this.room.composeTurn(batch);
     const contributors = [...new Set(batch.map((p) => p.authorName))];
@@ -405,10 +481,11 @@ export class RoomServer {
       resolve({ allow: false, reason: "room closing" });
     }
     this.room.close();
+    await this.routed?.close();
+    this.routed = null;
     for (const peer of this.peers.values()) peer.close(1001, "room closed");
     this.peers.clear();
     await this.transport.close();
-    await this.backend?.close();
     await this.transcript.close();
   }
 }
