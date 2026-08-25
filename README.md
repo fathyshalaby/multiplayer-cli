@@ -108,6 +108,7 @@ never goes on the wire. See [Security model](./docs/security.md).
 | | |
 |---|---|
 | [Getting started](./docs/getting-started.md) | install, share, join, and the commands in a session |
+| [The terminal seat](./docs/the-screen.md) | the full-screen panes, the keys, and when it uses one column |
 | [Deciding together](./docs/deciding.md) | the voting rules, presets, and how to tune them |
 | [Backends](./docs/backends.md) | which AI CLI runs the session, and adding another |
 | [Reaching your team](./docs/relay.md) | LAN, relays, tunnels |

@@ -81,6 +81,10 @@ the room sees:
   ✗ C  exit 1: cannot find module 'undici'
 ```
 
+In the full-screen seat the lanes and their votes stand in the sidebar while
+the race runs, rather than scrolling past — see
+[The terminal seat](./the-screen.md).
+
 Then one proposal per lane that actually produced changes. Approving one merges
 it; the others are withdrawn. Voting them all down lands nothing, which is a
 legitimate outcome — you learned that none of the three approaches was right,

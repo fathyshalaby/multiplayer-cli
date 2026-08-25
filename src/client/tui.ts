@@ -13,16 +13,9 @@ import { describeGate } from "../core/policy.js";
 import * as c from "../util/ansi.js";
 import { Connection } from "./connection.js";
 import { commandNames, helpLines, parse } from "./commands.js";
+import type { Seat, SeatOptions } from "./fullscreen.js";
 
-export interface TuiOptions {
-  connection: Connection;
-  name: string;
-  /** Intercepts the runner protocol before the UI sees it. */
-  onServerMessage?: (msg: ServerMessage) => boolean;
-  /** Printed once under the banner, e.g. the join command for teammates. */
-  banner?: string[];
-  onExit: () => void;
-}
+export type TuiOptions = SeatOptions;
 
 /**
  * The terminal seat.
@@ -32,7 +25,7 @@ export interface TuiOptions {
  * prompt for the cursor, and every room event is rendered with the same gutter
  * so votes, chat and model output stay visually distinct at a glance.
  */
-export class Tui {
+export class Tui implements Seat {
   private rl: Interface;
   private conn: Connection;
   private opts: TuiOptions;

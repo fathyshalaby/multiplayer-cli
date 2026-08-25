@@ -6,6 +6,7 @@ import { LocalWsTransport, RelayTransport, type Transport } from "./server/trans
 import { Relay } from "./server/relay.js";
 import { Connection } from "./client/connection.js";
 import { Tui } from "./client/tui.js";
+import { FullScreenSeat, canFullScreen, type Seat, type SeatOptions } from "./client/fullscreen.js";
 import { LocalRunner } from "./client/runner.js";
 import {
   applyOverrides,
@@ -202,6 +203,19 @@ function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServe
   return out;
 }
 
+/**
+ * Pick a seat for this terminal.
+ *
+ * The full-screen one is the default because a room has outgrown a single
+ * scrolling column — a race alone puts several agents on screen at once. The
+ * plain one is not a lesser fallback: it is what you want in a pipe, in CI, in
+ * a 40-column pane, and in any terminal that will not do alternate screens.
+ */
+function makeSeat(p: Parsed, opts: SeatOptions): Seat {
+  const plain = bool(p, "plain", false);
+  return !plain && canFullScreen() ? new FullScreenSeat(opts) : new Tui(opts);
+}
+
 /* ------------------------------------------------------------------ */
 /* host / serve                                                        */
 /* ------------------------------------------------------------------ */
@@ -224,7 +238,7 @@ async function cmdHost(p: Parsed, easy = false): Promise<void> {
     name,
     reconnect: true,
   });
-  const tui = new Tui({
+  const tui = makeSeat(p, {
     connection: conn,
     name,
     banner: inviteBanner(cfg, server, warnings),
@@ -297,7 +311,7 @@ async function cmdJoin(p: Parsed): Promise<void> {
 
   let runner: LocalRunner | null = null;
 
-  const tui: Tui = new Tui({
+  const tui: Seat = makeSeat(p, {
     connection: conn,
     name,
     ...(canRun ? { onServerMessage: (msg) => runner!.handle(msg) } : {}),
@@ -621,6 +635,9 @@ ${c.bold("Security")}
 ${c.bold("Seat options")}
   --name <name>          your display name (remembered)
   --observer             read-only: see everything, propose nothing
+  --plain                one scrolling column instead of the full-screen panes
+                         (also MPX_PLAIN=1; automatic when piped or on a small
+                         terminal)
 
 ${c.bold("Pointing at an existing session")}
   --resume <id>          continue a session/thread the backend already has
@@ -642,6 +659,8 @@ ${c.bold("Sharing the cost")}  ${c.yellow("experimental")}
   --runner               (seat) offer your machine and subscription to the room
 
 ${c.bold("In the session")}
+  Panes: the reply on the left, the roster, open votes and lanes beside it.
+  Tab completes · ↑↓ history · PgUp/PgDn scrollback · Ctrl-C interrupts.
   type anything          propose it to the room
   /y   /n <reason>       approve, or veto with a reason that gets recorded
   /amend  /say  /stop    rewrite a proposal · talk to the room only · interrupt

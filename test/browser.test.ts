@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -27,7 +27,20 @@ const CHROME_CANDIDATES = [
   "/opt/pw-browsers/chromium/chrome-linux/chrome",
 ].filter(Boolean) as string[];
 
+/**
+ * One browser for the whole file, launched on first use.
+ *
+ * A launch per test was enough to wedge a constrained container roughly one
+ * run in three: the next test would print its name and then sit forever
+ * waiting for a Chromium that never came up. The tests each use their own
+ * page anyway, so there was never a reason for more than one.
+ */
+let shared: any = null;
+let attempted = false;
+
 async function browser() {
+  if (attempted) return shared;
+  attempted = true;
   let chromium: any;
   try {
     ({ chromium } = await import("playwright"));
@@ -36,11 +49,17 @@ async function browser() {
   }
   const explicit = CHROME_CANDIDATES.find((p) => existsSync(p));
   try {
-    return await chromium.launch(explicit ? { executablePath: explicit } : {});
+    shared = await chromium.launch(explicit ? { executablePath: explicit } : {});
   } catch {
-    return null;
+    shared = null;
   }
+  return shared;
 }
+
+after(async () => {
+  await shared?.close().catch(() => {});
+  shared = null;
+});
 
 class Recorder implements AgentBackend {
   readonly name = "recorder";
@@ -147,7 +166,6 @@ test("clicking the shared link gets you a working seat", async (t) => {
   }
   const { relay, server, backend, share, ws } = await scene();
   t.after(async () => {
-    await b.close();
     await server.close();
     await relay.close();
   });
@@ -208,7 +226,6 @@ test("a browser seat with the wrong link never gets into the room", async (t) =>
   }
   const { relay, server, backend, share } = await scene();
   t.after(async () => {
-    await b.close();
     await server.close();
     await relay.close();
   });
@@ -230,7 +247,6 @@ test("the browser can veto, with a reason that is recorded", async (t) => {
   }
   const { relay, server, backend, share, ws } = await scene();
   t.after(async () => {
-    await b.close();
     await server.close();
     await relay.close();
   });
@@ -263,7 +279,6 @@ test("a bad token is refused in the browser too", async (t) => {
   }
   const { relay, server, share } = await scene();
   t.after(async () => {
-    await b.close();
     await server.close();
     await relay.close();
   });
@@ -292,7 +307,6 @@ test("the browser seat can start a race and vote on the diffs", async (t) => {
 
   const { relay, server, share, ws } = await scene({ cwd: repo, lanes: 2 });
   t.after(async () => {
-    await b.close();
     await server.close();
     await relay.close();
     await rm(repo, { recursive: true, force: true });

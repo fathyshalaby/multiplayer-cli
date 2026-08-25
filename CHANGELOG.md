@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.0
+
+- **A full-screen terminal seat.** The model's reply on the left; who is here,
+  what is waiting on your vote and how the lanes are doing in a pane beside it.
+  Racing is the reason: "which lane is winning" is standing information, and it
+  should not scroll away under the model's next paragraph.
+  - Shell line editing, command completion on `Tab`, input history on `↑`/`↓`,
+    and `PgUp`/`PgDn` scrollback that new output does not yank you out of.
+  - Only changed lines are rewritten, so typing costs bytes rather than
+    kilobytes — which is the difference between usable and unusable over ssh.
+  - `--plain` (or `MPX_PLAIN=1`) keeps the single scrolling column, and so does
+    a pipe, `TERM=dumb`, or a window under 60x14.
+- The layout and the line editor are pure functions, so the terminal UI is
+  tested by reading strings rather than by looking at it.
+- Fixed: pressing `↓` after editing a recalled history entry wiped the line.
+- Fixed: the browser tests launched a Chromium per test, which wedged a
+  constrained machine roughly one run in three. One browser for the file.
+
 ## 0.9.0
 
 - **Racing.** `/race 3 <prompt>` runs one approved prompt in three parallel git
