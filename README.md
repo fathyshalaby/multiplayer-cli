@@ -5,15 +5,9 @@
 One AI session. Several people in it. Nothing reaches the model until the room
 agrees.
 
-```
-  ▸ alice proposes #4
-      rewrite the auth middleware to use short-lived JWTs
-      [2/3 ✓ · 1 pending · 18s left]  ✓alice ✓bob   /y #4  /n #4  /amend #4 …
-
-  ✗ #4 rejected  — vetoed: we agreed to keep sessions server-side
-
-  💬 carol: let's ask it to compare the two first
-```
+<p align="center">
+  <img src="./docs/media/session.svg" alt="A recorded multiplayer-cli session: alice proposes a change, bob vetoes it with a reason, and the room talks it over." width="720">
+</p>
 
 Pair programming with an AI is usually one person driving and everyone else
 reading over a shoulder — or worse, three people running three private sessions
