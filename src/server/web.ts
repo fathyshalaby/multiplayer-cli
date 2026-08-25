@@ -3,7 +3,23 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ServerResponse } from "node:http";
 
-const here = dirname(fileURLToPath(import.meta.url));
+// Present when this module has been bundled to CommonJS; absent under ESM.
+declare const __dirname: string | undefined;
+
+/**
+ * Where this module lives, tolerating being bundled.
+ *
+ * A bundler that emits CommonJS leaves `import.meta.url` undefined, and feeding
+ * that to `fileURLToPath` throws at import time — which would take down
+ * anything embedding this, such as the editor extension. Work it out lazily and
+ * fall back rather than assuming an ESM file on disk.
+ */
+function moduleDir(): string {
+  const url = (import.meta as { url?: string } | undefined)?.url;
+  if (typeof url === "string" && url.startsWith("file:")) return dirname(fileURLToPath(url));
+  if (typeof __dirname === "string") return __dirname;
+  return process.cwd();
+}
 
 let cached: string | null = null;
 
@@ -17,9 +33,25 @@ let cached: string | null = null;
  */
 export function sessionPage(): string {
   if (cached) return cached;
-  // dist/src/server/ -> dist/src/client/web/
-  cached = readFileSync(join(here, "..", "client", "web", "session.html"), "utf8");
-  return cached;
+  const here = moduleDir();
+  const candidates = [
+    // dist/src/server/ -> dist/src/client/web/
+    join(here, "..", "client", "web", "session.html"),
+    // bundled: copied next to the bundle
+    join(here, "session.html"),
+    join(here, "web", "session.html"),
+  ];
+  for (const path of candidates) {
+    try {
+      cached = readFileSync(path, "utf8");
+      return cached;
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  throw new Error(
+    `could not find session.html (looked in ${candidates.join(", ")}) — the browser seat is missing from this build`,
+  );
 }
 
 /** Serve the seat for `/s/<room>`; returns false if the path is not ours. */

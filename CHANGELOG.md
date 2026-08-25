@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.0
+
+- **The Anthropic SDK is now optional.** It is 12MB and serves one backend —
+  the only one wanting an API key rather than a subscription — but a static
+  import made every install download it and put it in two thirds of the editor
+  extension's bundle. It now loads on demand, is an optional peer dependency,
+  and a missing install produces the command to fix it. The extension bundle
+  fell from 799KB to 258KB, and the CLI's only runtime dependency is `ws`.
+- **An editor seat.** A VS Code extension — working in **Cursor, VSCodium and
+  Windsurf** too — that joins or hosts a room from the activity bar, with
+  Approve and Veto on whatever is pending and the model's reply streaming in
+  place. Not yet on a registry: build it with `npm run build:extension` and
+  install the `.vsix`, or take the one CI attaches to each run. It targets
+  Open VSX rather than the VS Code Marketplace, since Live Share is licensed
+  to official Microsoft builds and blocked in forks.
+- The extension host owns the connection and imports the same client, protocol
+  and crypto the terminal uses, so an editor seat is the same code with a
+  different view rather than a reimplementation.
+- `sessionPage()` no longer resolves its own path at import time. Bundlers that
+  emit CommonJS leave `import.meta.url` undefined, which threw and would have
+  stopped the extension activating.
+
 ## 0.6.0
 
 Sessions now cross the internet safely.
