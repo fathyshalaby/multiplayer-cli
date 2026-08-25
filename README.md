@@ -6,7 +6,7 @@ One AI session. Several people in it. Nothing reaches the model until the room
 agrees.
 
 <p align="center">
-  <img src="./docs/media/session.svg" alt="A recorded multiplayer-cli session: alice proposes a change, bob vetoes it with a reason, and the room talks it over." width="720">
+  <img src="./docs/media/session.svg" alt="A recorded multiplayer-cli session: someone asks for the pagination layer to be rewritten, the agent stops at a fork and asks whether the v1 API should keep working, the room picks a direction, and the agent carries on from there." width="760">
 </p>
 
 Pair programming with an AI is usually one person driving and everyone else
