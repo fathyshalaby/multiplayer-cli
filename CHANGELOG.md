@@ -4,9 +4,11 @@
 
 Sessions now cross the internet safely.
 
-- **End-to-end encryption.** Every frame is sealed with AES-256-GCM under a key
-  derived from the room token. A relay, a proxy, or anything else in the path
-  moves ciphertext it cannot read.
+- **End-to-end encryption with forward secrecy.** Each connection agrees a key
+  by ephemeral ECDH (P-256), authenticated with the room token and salted by
+  both sides' nonces; traffic is sealed with AES-256-GCM under that key. The
+  token authenticates the exchange but never encrypts anything, so a recording
+  made today stays unreadable even if the link leaks tomorrow.
 - **The token never travels.** It was previously sent as `?t=` in the
   WebSocket URL, which meant a relay operator learned the room's password.
   Authentication is now decryption: a seat proves it belongs by producing a

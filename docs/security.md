@@ -3,14 +3,21 @@
 What this protects, and what it does not. Read this before putting a room on
 anything that matters.
 
-## Room traffic is end-to-end encrypted
+## Room traffic is end-to-end encrypted, with forward secrecy
 
-The token in a share link is not a password sent to a server — it is the key.
+The token in a share link is not a password sent to a server, and it is not the
+encryption key either. It **authenticates a key agreement**.
 
-Every frame between a seat and the host is sealed with AES-256-GCM under a key
-derived from the token (HKDF-SHA256, salted with the room name). Anything in
-between — a relay, a TLS terminator, a corporate proxy, whoever runs the box —
-moves ciphertext it cannot read.
+Every connection begins with an ephemeral ECDH exchange (P-256), MAC'd on both
+sides with a key derived from the token, and both sides' nonces are mixed into
+the result. Traffic is then sealed with AES-256-GCM under *that* key. Anything
+in between — a relay, a TLS terminator, a corporate proxy, whoever runs the box
+— moves ciphertext it cannot read.
+
+Because the key comes from ephemeral halves that never leave memory and are
+gone when the connection ends, **someone who records traffic today and obtains
+the link tomorrow still cannot read the recording**. Two connections to the same
+room with the same token produce unrelated keys.
 
 **The token itself never travels.** There is nothing on the wire to intercept
 and nothing for an access log to capture. A seat proves it belongs by producing
@@ -83,16 +90,21 @@ encryption protects the wire, not the disk.
 
 ## What this does not do
 
-- **No forward secrecy.** One key for the life of the room, derived from the
-  token. Someone who records traffic and later obtains the link can read what
-  they recorded.
+- **No in-session rekeying.** One key per *connection*, not rotated during it.
+  Reconnecting agrees a new one. An attacker who extracts a live session key
+  from process memory can read the rest of that connection — but they already
+  had the machine at that point.
 - **No per-seat identity.** Everyone with the link shares one key, so the
   cryptography proves someone is *in the room*, not *which person they are*.
   Display names are claimed, not verified.
 - **No protection from the host.** The host runs the session and sees
   everything. That is the design.
-- **Not audited.** Standard constructions used in a straightforward way, but no
-  third party has reviewed this.
+- **No protection from an active attacker who already has the link.** The token
+  authenticates the handshake, so anyone holding it can be a legitimate party —
+  including in the middle. The link is the trust boundary.
+- **Not audited.** Standard constructions used in a straightforward way
+  (HKDF-SHA256, ECDH P-256, HMAC-SHA256, AES-256-GCM), but no third party has
+  reviewed this.
 
 ## Reporting something
 

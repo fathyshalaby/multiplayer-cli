@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import type { ClientMessage, ServerMessage } from "../protocol.js";
 import { PROTOCOL_VERSION, decode, encode } from "../protocol.js";
-import { deriveKey } from "../core/crypto.js";
+import { deriveAuthKey } from "../core/crypto.js";
 import { SecureChannel } from "../core/secure.js";
 
 export interface ConnectionOptions {
@@ -40,10 +40,11 @@ export class Connection extends EventEmitter {
     this.channel = this.freshChannel();
   }
 
-  /** A reconnect is a new link, so it gets new sequence numbers. */
+  /** A reconnect is a new link, so it agrees a new key of its own. */
   private freshChannel(): SecureChannel {
     const { token, room } = this.opts;
-    return new SecureChannel(token ? deriveKey(token, room ?? "") : null);
+    const r = room ?? "";
+    return new SecureChannel(token ? deriveAuthKey(token, r) : null, r, "client");
   }
 
   /** True when this link is end-to-end encrypted. */
@@ -59,21 +60,31 @@ export class Connection extends EventEmitter {
 
     ws.on("open", () => {
       this.attempt = 0;
-      this.send({
-        t: "hello",
-        name: this.opts.name,
-        protocol: PROTOCOL_VERSION,
-        ...(this.opts.observer ? { observer: true } : {}),
-      });
-      this.heartbeat = setInterval(() => this.send({ t: "ping" }), 25_000);
-      this.heartbeat.unref?.();
-      const queued = this.outbox.splice(0);
-      for (const msg of queued) ws.send(this.channel.wrap(encode(msg)));
-      this.emit("open");
+      // Agree a key before anything is said. `hello` and everything after it
+      // queue until the handshake completes, so nothing is ever sent under the
+      // token itself.
+      const first = this.channel.begin();
+      if (first) ws.send(first);
+      this.queueHello();
+      if (!this.channel.encrypted) this.flush();
     });
 
     ws.on("message", (raw) => {
-      const plain = this.channel.unwrap(raw.toString());
+      const frame = raw.toString();
+
+      if (this.channel.encrypted && !this.channel.ready) {
+        if (!SecureChannel.isHandshake(frame)) return;
+        const step = this.channel.handshake(frame);
+        if (!step.ok) {
+          this.emit("warn", "the room did not answer the handshake correctly — wrong link, or something is intercepting the connection");
+          this.close();
+          return;
+        }
+        if (step.ready) this.flush();
+        return;
+      }
+
+      const plain = this.channel.unwrap(frame);
       if (plain === null) {
         // Either the room has a different token, or something in the path is
         // rewriting frames. Neither is worth continuing through.
@@ -107,7 +118,7 @@ export class Connection extends EventEmitter {
   }
 
   send(msg: ClientMessage): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.ws?.readyState === WebSocket.OPEN && this.channel.ready) {
       this.ws.send(this.channel.wrap(encode(msg)));
       return;
     }
@@ -115,6 +126,27 @@ export class Connection extends EventEmitter {
     // hello, which would arrive out of order after a reconnect.
     if (msg.t === "ping" || msg.t === "hello") return;
     if (this.outbox.length < 50) this.outbox.push(msg);
+  }
+
+  /** Everything the seat wants to say, once there is a key to say it under. */
+  private flush(): void {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    for (const msg of this.outbox.splice(0)) ws.send(this.channel.wrap(encode(msg)));
+    if (!this.heartbeat) {
+      this.heartbeat = setInterval(() => this.send({ t: "ping" }), 25_000);
+      this.heartbeat.unref?.();
+    }
+    this.emit("open");
+  }
+
+  private queueHello(): void {
+    this.outbox.unshift({
+      t: "hello",
+      name: this.opts.name,
+      protocol: PROTOCOL_VERSION,
+      ...(this.opts.observer ? { observer: true } : {}),
+    });
   }
 
   close(): void {

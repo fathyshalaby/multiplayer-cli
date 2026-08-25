@@ -8,7 +8,7 @@ import { createBackend, multiplayerSystemPrompt, type BackendName } from "../age
 import type { AgentBackend, TurnResult } from "../agent/types.js";
 import { id } from "../util/id.js";
 import type { Peer, Transport, TransportInfo } from "./transport.js";
-import { deriveKey } from "../core/crypto.js";
+import { deriveAuthKey } from "../core/crypto.js";
 import { SecureChannel } from "../core/secure.js";
 import { RoutedBackend } from "./runners.js";
 
@@ -127,7 +127,9 @@ export class RoomServer {
    */
   private onPeer(ws: Peer): void {
     const channel = new SecureChannel(
-      this.opts.token ? deriveKey(this.opts.token, this.opts.roomName) : null,
+      this.opts.token ? deriveAuthKey(this.opts.token, this.opts.roomName) : null,
+      this.opts.roomName,
+      "server",
     );
     const connectionId = ws.id;
     let joined = false;
@@ -153,6 +155,26 @@ export class RoomServer {
     };
 
     ws.onMessage((frame) => {
+      // A connection opens with an ephemeral key agreement, authenticated by
+      // the room token. Only once that lands does anything else make sense.
+      if (channel.encrypted && !channel.ready) {
+        if (!SecureChannel.isHandshake(frame)) {
+          ws.close(4003, "unauthorized");
+          return;
+        }
+        const step = channel.handshake(frame);
+        if (!step.ok) {
+          ws.close(4003, "unauthorized");
+          return;
+        }
+        if (step.reply) ws.send(step.reply);
+        if (step.ready && !proven) {
+          proven = true;
+          clearTimeout(handshake);
+        }
+        return;
+      }
+
       const raw = channel.unwrap(frame);
       if (raw === null) {
         // Say as little as possible: an attacker learns only that it failed.

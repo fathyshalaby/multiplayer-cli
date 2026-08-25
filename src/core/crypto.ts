@@ -1,4 +1,12 @@
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createECDH,
+  createHmac,
+  hkdfSync,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 
 /**
  * End-to-end encryption for room traffic.
@@ -18,6 +26,10 @@ const NONCE = 12;
 const TAG = 16;
 const KEY = 32;
 const INFO = "multiplayer-cli room v1";
+const AUTH_INFO = "multiplayer-cli auth v2";
+const SESSION_INFO = "multiplayer-cli session v2";
+/** P-256, because every browser's WebCrypto has it and Node speaks it natively. */
+const CURVE = "prime256v1";
 
 export interface RoomKey {
   readonly key: Buffer;
@@ -27,6 +39,10 @@ export interface RoomKey {
 /**
  * Turn a room token into a key. The salt is the room name, so the same token
  * reused for two rooms yields two unrelated keys.
+ *
+ * Used for the transcript of a room with no handshake; live connections use a
+ * session key from `deriveSessionKey` instead, so that the token is never the
+ * thing protecting traffic.
  */
 export function deriveKey(token: string, room: string): RoomKey {
   const bits = hkdfSync("sha256", Buffer.from(token, "utf8"), Buffer.from(room, "utf8"), Buffer.from(INFO, "utf8"), KEY);
@@ -110,4 +126,81 @@ export function sameSecret(a: string, b: string): boolean {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
+}
+
+
+/* ------------------------------------------------------------------ */
+/* forward secrecy                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The token proves membership; it does not encrypt anything.
+ *
+ * Deriving the traffic key straight from the token means one key for the life
+ * of a room, so anyone who records traffic and later obtains the link can read
+ * what they recorded. Instead each connection agrees a fresh key by ephemeral
+ * ECDH, and the token only authenticates that exchange. The private halves
+ * never leave memory and are gone when the connection ends, so recorded
+ * traffic stays unreadable even if the link leaks afterwards.
+ */
+export function deriveAuthKey(token: string, room: string): Buffer {
+  return Buffer.from(
+    hkdfSync("sha256", Buffer.from(token, "utf8"), Buffer.from(room, "utf8"), Buffer.from(AUTH_INFO, "utf8"), KEY),
+  );
+}
+
+export interface Ephemeral {
+  /** Uncompressed P-256 point, the same 65 bytes WebCrypto exports as "raw". */
+  readonly pub: Buffer;
+  /** The X coordinate of the shared point — what WebCrypto's deriveBits gives. */
+  computeSecret(peerPub: Buffer): Buffer;
+}
+
+export function newEphemeral(): Ephemeral {
+  const ecdh = createECDH(CURVE);
+  const pub = ecdh.generateKeys();
+  return {
+    pub,
+    computeSecret(peerPub: Buffer): Buffer {
+      return ecdh.computeSecret(peerPub);
+    },
+  };
+}
+
+/** Authenticate one side of the handshake with the room token. */
+export function handshakeMac(authKey: Buffer, label: string, ...parts: Buffer[]): Buffer {
+  const mac = createHmac("sha256", authKey);
+  mac.update(label);
+  for (const part of parts) {
+    // Length-prefix each field so two different splits cannot produce the same
+    // input — the classic way a MAC over concatenation goes wrong.
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(part.length);
+    mac.update(len);
+    mac.update(part);
+  }
+  return mac.digest();
+}
+
+export function macMatches(a: Buffer, b: Buffer): boolean {
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * Mix the agreed point with both nonces, so neither side alone chooses the
+ * key and a replayed handshake cannot resurrect an old one.
+ */
+export function deriveSessionKey(
+  shared: Buffer,
+  clientNonce: Buffer,
+  serverNonce: Buffer,
+  room: string,
+): RoomKey {
+  const salt = Buffer.concat([clientNonce, serverNonce]);
+  const info = Buffer.from(`${SESSION_INFO}:${room}`, "utf8");
+  return { key: Buffer.from(hkdfSync("sha256", shared, salt, info, KEY)), room };
+}
+
+export function randomNonce(bytes = 16): Buffer {
+  return randomBytes(bytes);
 }

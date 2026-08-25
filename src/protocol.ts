@@ -7,10 +7,12 @@
  */
 
 /**
- * Bumped to 2 when room traffic became end-to-end encrypted and the token
- * stopped travelling in the URL. A v1 client cannot talk to a v2 room.
+ * 2 made room traffic end-to-end encrypted and stopped the token travelling in
+ * the URL. 3 replaced the token-derived key with an ephemeral ECDH handshake,
+ * so a leaked link cannot decrypt traffic recorded earlier. Older clients
+ * cannot talk to a v3 room.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export type Role = "owner" | "member" | "observer";
 export type Vote = "yes" | "no" | "abstain";
