@@ -1,5 +1,6 @@
 import { hostname } from "node:os";
 import type { ClientMessage, LaneInfo, Proposal, RoomPolicy, ServerMessage, ToolRequest } from "../protocol.js";
+import { CrossroadsStream, type ParsedCrossroads } from "../core/crossroads.js";
 import { PROTOCOL_VERSION, decode, encode } from "../protocol.js";
 import { MAX_LANES, Room } from "../core/room.js";
 import { Transcript } from "../core/transcript.js";
@@ -78,6 +79,8 @@ export class RoomServer {
   private repo: RepoInfo | null = null;
   /** The race whose lanes the room is currently voting on, if any. */
   private race: Race | null = null;
+  /** Resolves the turn a blocking crossroads is holding, once the room picks. */
+  private pendingChoice: ((label: string | null) => void) | null = null;
   /**
    * Set the instant a landing starts, not when it finishes.
    *
@@ -104,6 +107,9 @@ export class RoomServer {
     this.room.on("promptReady", () => void this.pump());
     this.room.on("laneDecision", (p: Proposal, allow: boolean, reason: string) => {
       void this.onLaneDecision(p, allow, reason);
+    });
+    this.room.on("choiceDecision", (p: Proposal, allow: boolean, reason: string) => {
+      this.onChoiceDecision(p, allow, reason);
     });
     this.room.on("toolDecision", (p: Proposal, allow: boolean, reason: string) => {
       const key = p.tool?.toolUseId;
@@ -307,6 +313,20 @@ export class RoomServer {
         else if (race !== undefined && this.laneWarning) this.room.notice("warn", this.laneWarning);
         return;
       }
+      case "ask": {
+        const p = this.room.get(pid);
+        if (!p) return;
+        if (p.role === "observer") return fail("observers cannot put a fork to the room");
+        const result = this.room.ask(
+          pid,
+          p.name,
+          msg.question,
+          msg.options.map((label) => ({ label })),
+          false,
+        );
+        if ("error" in result) fail(result.error);
+        return;
+      }
       case "setLanes": {
         const p = this.room.get(pid);
         if (!p) return;
@@ -354,6 +374,11 @@ export class RoomServer {
         if (!this.abort) return fail("nothing is running");
         this.room.notice("warn", `${p?.name ?? "someone"} interrupted the turn`);
         this.abort.abort();
+        if (this.pendingChoice) {
+          this.pendingChoice(null);
+          this.pendingChoice = null;
+          this.room.abandonCrossroads("turn interrupted");
+        }
         // Deny anything the room was still voting on; the turn is over.
         for (const [key, resolve] of this.pendingTools) {
           this.pendingTools.delete(key);
@@ -697,6 +722,13 @@ export class RoomServer {
 
     this.abort = new AbortController();
     let sawText = false;
+    // Any backend at all can raise a fork, because every backend streams text
+    // and the block is in the text. Only some of them can be held while the
+    // room answers; the rest are answered in their next turn.
+    const forks = new CrossroadsStream();
+    const raise = (found: ParsedCrossroads[]) => {
+      for (const f of found) this.raiseCrossroads(f, false);
+    };
 
     const result = await backend
       .send(
@@ -708,7 +740,10 @@ export class RoomServer {
               sawText = true;
               this.room.setAgent({ state: "streaming", turnId });
             }
-            this.fanout({ t: "delta", turnId, kind: "text", text });
+            const step = forks.push(text);
+            raise(step.found);
+            if (!step.text) return;
+            this.fanout({ t: "delta", turnId, kind: "text", text: step.text });
           },
           onThinking: (text) => {
             if (text) this.fanout({ t: "delta", turnId, kind: "thinking", text });
@@ -718,6 +753,7 @@ export class RoomServer {
             this.fanout({ t: "toolResult", turnId, toolUseId, ok, preview });
           },
           onNotice: (text) => this.room.notice("info", text),
+          onCrossroads: (question, options) => this.blockingCrossroads(question, options),
         },
         this.abort.signal,
       )
@@ -726,6 +762,9 @@ export class RoomServer {
         error: (err as Error)?.message ?? String(err),
       }));
 
+    // A turn that ended mid-block never had a block; show what it wrote.
+    const tail = forks.flush();
+    if (tail) this.fanout({ t: "delta", turnId, kind: "text", text: tail });
     this.abort = null;
     const end: ServerMessage = {
       t: "turnEnd",
@@ -744,6 +783,84 @@ export class RoomServer {
 
     // Anything approved while this turn ran goes next.
     if (this.room.queuedIds().length) void this.pump();
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* crossroads                                                        */
+  /* ---------------------------------------------------------------- */
+
+  private raiseCrossroads(f: ParsedCrossroads, blocking: boolean): boolean {
+    const asked = this.room.ask(
+      "agent",
+      this.room.agent.backend || "the agent",
+      f.question,
+      f.options,
+      blocking,
+    );
+    if ("error" in asked) {
+      this.room.notice("warn", `could not put that fork to the room — ${asked.error}`);
+      return false;
+    }
+    this.room.notice(
+      "info",
+      blocking
+        ? "the turn is paused until the room picks a direction"
+        : "the room's answer will go back as the next message",
+    );
+    return true;
+  }
+
+  /**
+   * Hold the turn open while the room decides.
+   *
+   * Only backends that call `onCrossroads` get this — which today means the
+   * one whose tool loop this process owns. Everything else has already
+   * streamed its answer by the time we see the block, and pretending we paused
+   * a process we cannot pause would be worse than being honest about it.
+   */
+  private blockingCrossroads(question: string, options: string[]): Promise<string | null> {
+    const raised = this.raiseCrossroads(
+      { question, options: options.map((label) => ({ label })) },
+      true,
+    );
+    if (!raised) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      this.pendingChoice = resolve;
+    });
+  }
+
+  private onChoiceDecision(p: Proposal, allow: boolean, reason: string): void {
+    const info = this.room.crossroads;
+    if (!info || info.state !== "open" || !p.option) return;
+
+    if (!allow) {
+      // Every option voted down is a real outcome: the room looked at the fork
+      // and declined to pick, which the agent needs told rather than hidden.
+      if (this.room.openProposals().some((o) => o.kind === "choice")) return;
+      this.room.abandonCrossroads("no direction chosen");
+      this.settleChoice(info.question, null, "the room did not pick a direction");
+      return;
+    }
+
+    const option = info.options.find((o) => o.id === p.option);
+    this.room.settleCrossroads(p.option, `the room chose ${p.option}`);
+    this.room.notice("info", `the room chose ${p.option}: ${option?.label ?? ""} (${reason})`);
+    this.settleChoice(info.question, option?.label ?? p.option, null);
+  }
+
+  /** Deliver the answer, whichever way the backend is able to receive it. */
+  private settleChoice(question: string, label: string | null, why: string | null): void {
+    const waiting = this.pendingChoice;
+    if (waiting) {
+      this.pendingChoice = null;
+      waiting(label);
+      return;
+    }
+    // Nothing is holding a turn, so the answer becomes the next message.
+    const text = label
+      ? `The room decided: ${label}.\n\n(You asked: ${question}.) Carry on from there — do not ask again unless something new makes it a genuine fork.`
+      : `The room looked at your question — ${question} — and did not pick a direction (${why ?? "no option carried"}). Use your judgement, and say plainly which way you went and why.`;
+    this.room.injectTurn(text, "the room");
   }
 
   /**
@@ -782,6 +899,8 @@ export class RoomServer {
     if (this.closed) return;
     this.closed = true;
     this.abort?.abort();
+    this.pendingChoice?.(null);
+    this.pendingChoice = null;
     for (const [key, resolve] of this.pendingTools) {
       this.pendingTools.delete(key);
       resolve({ allow: false, reason: "room closing" });

@@ -219,3 +219,17 @@ test("truncation is measured in visible characters", () => {
   assert.equal(truncate("abcdef", 4), "abc…");
   assert.equal(truncate("abc", 10), "abc");
 });
+
+test("the version mpx reports is the version in the manifest", async () => {
+  // These were two hand-maintained copies of the same number, and they spent
+  // two releases disagreeing.
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { readFileSync } = await import("node:fs");
+  const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+  const { stdout } = await promisify(execFile)(process.execPath, [
+    new URL("../src/cli.js", import.meta.url).pathname,
+    "--version",
+  ]);
+  assert.equal(stdout.trim(), manifest.version);
+});

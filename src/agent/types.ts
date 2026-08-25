@@ -13,6 +13,16 @@ export interface AgentEvents {
   /** A tool finished; `preview` is a short rendering for the transcript. */
   onToolResult(toolUseId: string, ok: boolean, preview: string): void;
   onNotice(text: string): void;
+  /**
+   * The agent has reached a fork and wants the room to pick.
+   *
+   * Resolves with the option the room chose, or `null` if it declined to pick
+   * — which is itself an answer, and one the agent should be told rather than
+   * left waiting on. Optional: only a backend whose turn this process can hold
+   * open is able to wait, and the rest raise forks through their output
+   * instead.
+   */
+  onCrossroads?(question: string, options: string[]): Promise<string | null>;
 }
 
 export interface TurnResult {

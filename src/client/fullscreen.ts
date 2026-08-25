@@ -238,6 +238,20 @@ export class FullScreenSeat implements Seat {
         this.say(c.dim(`interrupt  ${v.policy.interrupt}   merge queued: ${v.policy.mergeQueued}`));
         this.say(c.dim("change with /policy <preset> or /policy mode=consensus timeout=30s"));
         return;
+      case "fork": {
+        const fork = v.crossroads;
+        if (!fork || fork.state !== "open") {
+          return this.say(c.dim("no fork on the table — /ask <question> | <a> | <b> puts one there"));
+        }
+        // Raw, so a pre-formatted listing is not re-wrapped into orphans.
+        this.view.raw(`${c.blue("⑂")} ${c.bold(fork.question)}`);
+        for (const o of fork.options) {
+          this.view.raw(`   ${c.bold(o.id)}  ${o.label}${o.proposalId ? c.dim(`   /y ${o.proposalId}`) : ""}`);
+          if (o.detail) this.view.raw(c.dim(`      ${o.detail}`));
+        }
+        this.paint();
+        return;
+      }
       case "lanes": {
         if (!v.lanes.length) {
           return this.say(c.dim(v.laneCount ? `no lanes yet — /race <prompt> opens ${v.laneCount}` : "racing is off in this room"));

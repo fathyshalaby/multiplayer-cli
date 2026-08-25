@@ -16,9 +16,40 @@ export const TOOL_RISK: Record<string, ToolRisk> = {
   search: "read",
   write_file: "write",
   bash: "exec",
+  // Asking the room is not an action on anything; it is handled before the
+  // risk gate ever sees it, and listed here only so nothing treats it as
+  // unclassified.
+  ask_room: "read",
 };
 
+/** Handled by the backend itself rather than run, so the room can vote on it. */
+export const ASK_ROOM = "ask_room";
+
 export const TOOLS: Anthropic.Tool[] = [
+  {
+    name: ASK_ROOM,
+    description: [
+      "Put a fork in the road to the room and wait for them to pick.",
+      "",
+      "Use this when you reach two or more defensible directions and choosing wrong means redoing the work — especially when the answer is a decision rather than a fact: product intent, backwards compatibility, how much scope to take on. Everyone in the room votes and you are told what they chose.",
+      "Do not use it for anything you could settle by reading the repository, and do not use it to ask permission for a tool call — the room already votes on those.",
+    ].join("\n"),
+    input_schema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "The decision, in one line." },
+        options: {
+          type: "array",
+          description: "Two to six real courses of action, each one line.",
+          items: { type: "string" },
+          minItems: 2,
+          maxItems: 6,
+        },
+      },
+      required: ["question", "options"],
+      additionalProperties: false,
+    },
+  },
   {
     name: "read_file",
     description:

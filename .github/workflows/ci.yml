@@ -13,8 +13,8 @@ jobs:
       matrix:
         node: ["20.11", "22", "24"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -27,8 +27,8 @@ jobs:
   extension:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
@@ -39,16 +39,32 @@ jobs:
       - run: node scripts/build-extension.mjs
       - run: node --test dist/test/extension.test.js
       - run: cd extension && npx vsce package --no-dependencies --out multiplayer-cli.vsix
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: multiplayer-cli-vsix
           path: extension/multiplayer-cli.vsix
 
+  # The stubbed-API tests prove the extension's logic; only a real editor can
+  # prove VS Code will load the bundle and activate it. That has broken before,
+  # and every other test passed while it was broken.
+  vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/build-extension.mjs
+      - run: xvfb-run -a npm run test:vscode
+
   browser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm

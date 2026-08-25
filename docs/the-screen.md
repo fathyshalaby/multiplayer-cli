@@ -87,3 +87,22 @@ precise rather than approximate.
 repaint on every keystroke is what makes a terminal UI flicker, and what makes
 it unusable over ssh; typing one character costs a few dozen bytes instead of a
 few kilobytes.
+
+## The recording in the README
+
+`./scripts/record-demo.sh` drives the real binary in a real terminal, types
+real commands into it, and renders whatever came back to
+`docs/media/session.svg`. Nobody draws the demo, so the picture cannot quietly
+stop matching the tool.
+
+It needs `script` (util-linux) for the pty. Two things in there are worth
+knowing if you touch it:
+
+- **The timing log counts bytes, and the stream is UTF-8.** Slicing the decoded
+  string instead drifts the moment a box-drawing character appears, which is
+  immediately, and every chunk after that is nonsense.
+- **Frame boundaries come from the stream, not the timing.** `script` buffers
+  its own reads, so its chunks have nothing to do with the app's writes. A
+  completed repaint ends by parking the cursor and showing it; sampling
+  anywhere else catches a half-updated screen, which shows up as duplicated
+  lines.

@@ -11,13 +11,14 @@
  * the URL. 3 replaced the token-derived key with an ephemeral ECDH handshake,
  * so a leaked link cannot decrypt traffic recorded earlier. 4 added lanes:
  * proposals carry a lane count, and output carries the lane it came from.
- * Older clients cannot talk to a v4 room.
+ * 5 added crossroads, where the agent asks the room to pick a direction.
+ * Older clients cannot talk to a v5 room.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 export type Role = "owner" | "member" | "observer";
 export type Vote = "yes" | "no" | "abstain";
-export type ProposalKind = "prompt" | "tool" | "lane";
+export type ProposalKind = "prompt" | "tool" | "lane" | "choice";
 export type ProposalStatus =
   | "open"
   | "approved"
@@ -60,6 +61,8 @@ export interface RoomPolicy {
   tool: GatePolicy;
   /** Gate applied to landing a lane's work in the repository. */
   lane: GatePolicy;
+  /** Gate applied to ratifying a direction at a crossroads. */
+  choice: GatePolicy;
   /** Tool risk levels that skip the vote entirely. */
   autoAllowToolRisks: ToolRisk[];
   /** Who may interrupt a running turn. */
@@ -108,6 +111,8 @@ export interface Proposal {
   race?: number;
   /** On a lane proposal: which lane landing this would merge. */
   lane?: string;
+  /** On a choice proposal: which crossroads option this would ratify. */
+  option?: string;
   createdAt: number;
   /** Wall-clock ms after which the timer decides. `null` = no timer. */
   deadline: number | null;
@@ -130,6 +135,45 @@ export interface Tally {
   need: number;
   decision: "pending" | "approve" | "reject";
   reason: string;
+}
+
+export interface CrossroadsOption {
+  /** Short and stable: a, b, c. */
+  id: string;
+  label: string;
+  /** Why you would pick it, when the model bothered to say. */
+  detail?: string;
+  /** The proposal ratifying this option. */
+  proposalId: string | null;
+}
+
+/**
+ * A fork put to the room.
+ *
+ * Every other gate is the room interrupting the agent. This is the agent
+ * stopping at a fork it cannot settle on its own — usually because the answer
+ * is a decision rather than a fact — and asking which way to go before it
+ * spends the work finding out.
+ */
+export interface CrossroadsInfo {
+  id: string;
+  question: string;
+  /** Participant id, or `"agent"`. */
+  askedById: string;
+  askedByName: string;
+  options: CrossroadsOption[];
+  createdAt: number;
+  /** The option the room ratified, once it has. */
+  chosen: string | null;
+  state: "open" | "decided" | "abandoned";
+  /**
+   * A turn is paused waiting for this answer.
+   *
+   * True only where the backend can actually be held mid-turn. A CLI that has
+   * already streamed its output cannot be paused, so its crossroads is
+   * answered in the next turn instead — and says so rather than pretending.
+   */
+  blocking: boolean;
 }
 
 /**
@@ -221,6 +265,8 @@ export interface RoomSnapshot {
   lanes: LaneInfo[];
   /** Lanes a bare `/race` opens. 0 when this room cannot race at all. */
   laneCount: number;
+  /** The fork the room is deciding, if there is one. */
+  crossroads: CrossroadsInfo | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -242,6 +288,8 @@ export type ClientMessage =
   | { t: "passMic"; toId: string }
   /* Change how many lanes a bare `/race` opens (host only). */
   | { t: "setLanes"; count: number }
+  /* Put a fork to the room yourself, rather than waiting for the agent to. */
+  | { t: "ask"; question: string; options: string[] }
   | { t: "sync" }
   | { t: "ping" }
   /* A seat offering its own machine and subscription to the room. */
@@ -283,6 +331,7 @@ export type ServerMessage =
   | { t: "notice"; level: "info" | "warn" | "error"; text: string }
   | { t: "runners"; runners: RunnerInfo[]; activeId: string | null }
   | { t: "lanes"; lanes: LaneInfo[]; laneCount: number }
+  | { t: "crossroads"; crossroads: CrossroadsInfo | null }
   /* Sent only to the seat that is being asked to run this turn. */
   | { t: "runTurn"; turnId: string; prompt: string }
   | { t: "runCancel"; turnId: string }

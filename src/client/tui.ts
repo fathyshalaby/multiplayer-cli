@@ -1,6 +1,7 @@
 import { createInterface, type Interface } from "node:readline";
 import { clearLine, cursorTo } from "node:readline";
 import type {
+  CrossroadsInfo,
   LaneInfo,
   Participant,
   Proposal,
@@ -248,6 +249,10 @@ export class Tui implements Seat {
         this.onLanes(msg.lanes, msg.laneCount);
         return;
 
+      case "crossroads":
+        this.onCrossroads(msg.crossroads);
+        return;
+
       case "toolResult": {
         if (msg.lane) return;
         this.flushStream();
@@ -347,6 +352,30 @@ export class Tui implements Seat {
     this.writeRaw([c.dim("  ┄ lanes  ") + bits.join(c.dim("   "))]);
   }
 
+  /**
+   * A fork is the one thing the room should not be able to scroll past, so it
+   * is printed as a block with the question above the options rather than as
+   * three unrelated votes.
+   */
+  private onCrossroads(fork: CrossroadsInfo | null): void {
+    if (this.room) this.room.crossroads = fork;
+    if (!fork) return this.redraw();
+    if (fork.state === "open") {
+      this.print(
+        "",
+        `  ${c.blue("⑂")} ${c.bold(fork.askedByName)} asks the room to pick a direction`,
+        ...c.wrapText(fork.question, this.width - 8, "      ").map((l) => c.bold(l)),
+        ...(fork.blocking ? [c.dim("      the turn is paused until you do")] : []),
+      );
+    } else if (fork.state === "decided") {
+      const chosen = fork.options.find((o) => o.id === fork.chosen);
+      this.print(`  ${c.green("⑂")} the room chose ${c.bold(fork.chosen ?? "?")}: ${chosen?.label ?? ""}`);
+    } else {
+      this.print(c.dim(`  ⑂ the room did not pick a direction`));
+    }
+    this.redraw();
+  }
+
   private onLanes(lanes: LaneInfo[], laneCount: number): void {
     if (!this.room) return;
     const before = new Map(this.room.lanes.map((l) => [l.id, l.state]));
@@ -385,6 +414,15 @@ export class Tui implements Seat {
     const tag = this.color({ color: this.colorFor(p.authorId) });
 
     if (event === "new") {
+      if (p.kind === "choice") {
+        const opt = this.room?.crossroads?.options.find((o) => o.id === p.option);
+        this.print(
+          `    ${c.blue("⑂")} ${c.bold(p.id)} ${c.bold(p.option ?? "?")} — ${opt?.label ?? p.text}`,
+          ...(opt?.detail ? c.wrapText(opt.detail, this.width - 12, "        ").map((l) => c.dim(l)) : []),
+          this.voteLine(p, t),
+        );
+        return;
+      }
       if (p.kind === "lane") {
         const lane = this.room?.lanes.find((l) => l.id === p.lane);
         this.print(
@@ -439,8 +477,10 @@ export class Tui implements Seat {
       p.status === "approved" || p.status === "sent"
         ? p.kind === "tool"
           ? "tool approved"
-          : p.kind === "lane"
-            ? `landing lane ${p.lane}`
+          : p.kind === "choice"
+            ? `the room picks ${p.option}`
+            : p.kind === "lane"
+              ? `landing lane ${p.lane}`
             : p.race
               ? `racing in ${p.race} lanes`
               : "queued for the model"
@@ -545,6 +585,22 @@ export class Tui implements Seat {
       case "lanes":
         this.printLanes();
         return;
+      case "fork": {
+        const fork = this.room?.crossroads;
+        if (!fork || fork.state !== "open") {
+          return this.print(c.dim("  no fork on the table — /ask <question> | <a> | <b> puts one there"));
+        }
+        this.print(
+          "",
+          `  ${c.blue("⑂")} ${c.bold(fork.question)}`,
+          ...fork.options.flatMap((o) => [
+            `    ${c.bold(o.id)}  ${o.label}${o.proposalId ? c.dim(`   /y ${o.proposalId}`) : ""}`,
+            ...(o.detail ? [c.dim(`       ${c.truncate(o.detail, this.width - 12)}`)] : []),
+          ]),
+          "",
+        );
+        return;
+      }
       case "transcript":
         this.print(c.dim(`  transcript: ${this.room?.transcriptPath ?? "(off)"}`));
         return;

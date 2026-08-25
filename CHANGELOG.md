@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.11.0
+
+- **A landing page** at `docs/index.html`, served by GitHub Pages from `/docs`.
+  Self-contained: no build step, no framework, no external request except the
+  recording it embeds.
+- **The README demo is recorded, not drawn.** `scripts/record-demo.sh` drives
+  the real binary in a real pty — two people in a room, an agent stopping at a
+  fork, the room picking a direction — and renders the frames to an animated
+  SVG. The demo cannot drift from the tool, because it is the tool's output.
+
+- **Crossroads.** The agent stops at a genuine fork and asks the room which way
+  to go, before spending the work. Every other gate is the room interrupting
+  the agent; this is the agent asking the room, which is the one direction the
+  design was missing.
+  - Racing answers "which approach?" by building all of them. This answers it
+    by asking — the only thing that works when the fork is about intent rather
+    than code. *"Must v1 keep working?"* is a decision, not a fact.
+  - Any backend can raise one, by writing a `[[crossroads]]` block; the block
+    is lifted out of the transcript rather than read to the room as prose. The
+    built-in `anthropic` backend gets a real `ask_room` tool instead.
+  - Only some backends can be held mid-turn, and the room says which is
+    happening rather than blurring it: `anthropic` genuinely pauses, and a CLI
+    that has already streamed its answer gets the room's decision as its next
+    message.
+  - `/ask <q> | <a> | <b>` puts a fork to the room by hand, on any backend.
+  - Voting every option down is a real outcome, and the agent is told so
+    instead of being left waiting.
+  - Its own gate, `choice.*`. No timer in any preset: silence is consent for a
+    question, not for a direction.
+  - Proposed by Fathy's collaborator.
+- Protocol 5.
+
+## 0.10.1
+
+- **Fixed: `mpx --version` had been reporting 0.8.0 for two releases.** The
+  number was written down in two places, so of course they disagreed. It is now
+  read from the manifest, and a test fails if the two ever differ again.
+- `mpx policies` shows the landing gate alongside prompts and tools — lanes
+  have had their own gate since 0.9.0 and this is where people look for it.
+- **Releases are cut by CI.** `.github/workflows/release.yml` tags the commit,
+  writes the release notes from this changelog, and attaches the npm tarball
+  and the packaged extension. It publishes to npm and Open VSX when the
+  `NPM_TOKEN` and `OVSX_TOKEN` secrets exist, and says so plainly when they do
+  not — rather than failing, or pretending it published something.
+- **CI now runs the extension inside a real VS Code**, headless under xvfb.
+  The stubbed-API tests prove its logic; only a real editor proves VS Code will
+  load the bundle and activate it — which is exactly the failure that once got
+  past every other test.
+
 ## 0.10.0
 
 - **A full-screen terminal seat.** The model's reply on the left; who is here,

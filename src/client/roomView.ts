@@ -1,4 +1,5 @@
 import type {
+  CrossroadsInfo,
   LaneInfo,
   Participant,
   Proposal,
@@ -60,6 +61,8 @@ export interface ViewState {
   lanes: LaneInfo[];
   /** How many lanes a bare race opens; 0 when this room cannot race. */
   laneCount: number;
+  /** The fork the room is deciding, if there is one. */
+  crossroads: CrossroadsInfo | null;
   log: LogEntry[];
   /* Everything below is snapshot state a full-screen seat draws in its panes. */
   /** Approved prompts waiting for the model to free up. */
@@ -164,6 +167,13 @@ export class RoomView {
         this.state.laneCount = msg.laneCount;
         return;
 
+      case "crossroads":
+        this.state.crossroads = msg.crossroads;
+        if (msg.crossroads?.state === "open") {
+          this.note("notice", `${msg.crossroads.askedByName} asks: ${msg.crossroads.question}`);
+        }
+        return;
+
       case "delta": {
         if (msg.kind !== "text") return;
         // A lane's output belongs to its lane, not to the room's transcript:
@@ -251,6 +261,7 @@ export class RoomView {
     this.state.participants = room.participants;
     this.state.lanes = room.lanes;
     this.state.laneCount = room.laneCount;
+    this.state.crossroads = room.crossroads;
     this.state.policy = room.policy;
     this.state.queued = room.queued;
     this.state.micHolderId = room.micHolderId;
@@ -332,6 +343,7 @@ function blank(): ViewState {
     proposals: [],
     lanes: [],
     laneCount: 0,
+    crossroads: null,
     log: [],
     queued: [],
     micHolderId: null,

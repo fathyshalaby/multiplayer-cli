@@ -19,9 +19,10 @@ mpx policies
 | `host` | the host decides | the host decides | demos and workshops |
 | `round-robin` | only whoever holds the mic | majority | structured sessions |
 
-Landing a [race](./racing.md) has its own gate, under the `lane.` prefix. It
-never has a timer in any preset: silence is consent for a question, not for a
-merge.
+Landing a [race](./racing.md) has its own gate under `lane.`, and ratifying a
+direction at a [crossroads](./crossroads.md) has one under `choice.`. Neither
+has a timer in any preset: silence is consent for a question, not for a merge
+and not for a direction.
 
 ```bash
 mpx share --policy strict
@@ -95,6 +96,7 @@ resolves what was pending.
 | `soloBypass` | skip the ceremony in a one-person room |
 | `tool.*` | all of the above again, for the model's tool calls |
 | `lane.*` | and again, for landing a [race](./racing.md) in the repository |
+| `choice.*` | and again, for ratifying a direction at a [crossroads](./crossroads.md) |
 | `autoAllow` | tool risk levels that skip the vote: `read`, `write`, `exec` |
 | `interrupt` | who may stop a running turn: `anyone`, `owner`, `proposer` |
 | `merge` | bundle prompts approved while the model was busy into one turn |

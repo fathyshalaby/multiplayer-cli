@@ -1,0 +1,129 @@
+# Tagging, releasing and publishing.
+#
+# This lives in Actions rather than on someone's laptop for a plain reason: it
+# is the only place that has both the credentials and the network to do the job,
+# and it does the same thing every time. Publishing steps skip themselves when
+# their secret is absent, so the workflow is useful before anyone has set one up
+# — it will still tag the commit and cut the release.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.10.0. Must have a CHANGELOG.md section."
+        required: true
+        type: string
+      ref:
+        description: "Commit to tag. Defaults to the commit this run started from."
+        required: false
+        type: string
+      publish_npm:
+        description: "Publish to npm (needs the NPM_TOKEN secret)."
+        required: false
+        default: true
+        type: boolean
+      publish_ovsx:
+        description: "Publish the extension to Open VSX (needs the OVSX_TOKEN secret)."
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  # `npm publish --provenance` signs the package against this run.
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Check the version is the one in package.json
+        run: |
+          want="${{ inputs.version }}"
+          have="$(node -p "require('./package.json').version")"
+          if [ "$want" != "$have" ]; then
+            echo "::error::asked to release $want but this commit says $have"
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run build
+
+      # Never tag something that does not pass its own tests.
+      - run: npm install playwright && npx playwright install --with-deps chromium
+      - run: npm test
+      - run: node scripts/build-extension.mjs
+
+      - name: Gather the release notes
+        id: notes
+        run: |
+          node scripts/changelog-section.mjs "${{ inputs.version }}" > /tmp/notes.md
+          echo "--- notes ---"; cat /tmp/notes.md
+
+      - name: Package the extension
+        run: cd extension && npx vsce package --no-dependencies --out multiplayer-cli.vsix
+
+      - name: Pack the npm tarball
+        run: npm pack --pack-destination /tmp
+
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${{ inputs.version }}"
+          sha="$(git rev-parse HEAD)"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "$tag already exists on the remote; leaving it alone"
+          else
+            git tag -a "$tag" -m "$tag" "$sha"
+            git push origin "$tag"
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --notes-file /tmp/notes.md
+          else
+            gh release create "$tag" --title "$tag" --notes-file /tmp/notes.md --target "$sha"
+          fi
+          gh release upload "$tag" \
+            extension/multiplayer-cli.vsix \
+            /tmp/multiplayer-cli-${{ inputs.version }}.tgz \
+            --clobber
+
+      - name: Publish to npm
+        if: ${{ inputs.publish_npm }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::notice::no NPM_TOKEN secret, so nothing was published to npm"
+            exit 0
+          fi
+          # Idempotent: re-running a release should not fail on a version that
+          # is already up there.
+          if npm view "multiplayer-cli@${{ inputs.version }}" version >/dev/null 2>&1; then
+            echo "::notice::multiplayer-cli@${{ inputs.version }} is already published"
+            exit 0
+          fi
+          npm publish --provenance --access public
+
+      - name: Publish the extension to Open VSX
+        if: ${{ inputs.publish_ovsx }}
+        env:
+          OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+        run: |
+          if [ -z "$OVSX_TOKEN" ]; then
+            echo "::notice::no OVSX_TOKEN secret, so the extension was not published"
+            exit 0
+          fi
+          npx ovsx publish extension/multiplayer-cli.vsix -p "$OVSX_TOKEN"

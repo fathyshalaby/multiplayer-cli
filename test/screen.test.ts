@@ -169,6 +169,7 @@ function snapshot(over: Partial<RoomSnapshot> = {}): RoomSnapshot {
     activeRunnerId: null,
     lanes: [],
     laneCount: 3,
+    crossroads: null,
     ...over,
   };
 }
