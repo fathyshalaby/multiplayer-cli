@@ -25,9 +25,9 @@ Works with **Claude Code**, **Codex**, **GitHub Copilot CLI** and **OpenCode**.
 npm install -g multiplayer-cli
 ```
 
-Node 20.11+. No API key needed — the room runs on whatever coding CLI you are
-already logged into. Everyone else joins with `mpx`, or from a browser with
-nothing installed at all.
+Node 20.11+, and one dependency. No API key needed — the room runs on whatever
+coding CLI you are already logged into. Everyone else joins with `mpx`, or from
+a browser with nothing installed at all.
 
 ## The whole thing
 
@@ -178,7 +178,7 @@ It starts the room and hands you the link to paste.
 ```bash
 npm install
 npm run build
-npm test          # 178 tests, no API key and no coding CLI required
+npm test          # 185 tests, no API key and no coding CLI required
 ```
 
 The layout follows the seams:

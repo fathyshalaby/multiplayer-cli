@@ -1,6 +1,38 @@
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentBackend, AgentEvents, BackendOptions, TurnResult } from "./types.js";
 import { TOOLS, riskOf, runTool, summarize } from "./tools.js";
+
+/** The SDK namespace, loaded on demand. */
+type Sdk = typeof import("@anthropic-ai/sdk");
+
+/**
+ * Load the SDK only if this backend is actually used.
+ *
+ * It is 12MB, and most rooms never touch it — they run on a coding CLI the host
+ * is already signed into. Making it a hard dependency would put that weight in
+ * front of every install and two thirds of the editor extension's bundle, to
+ * support the one backend that needs an API key rather than a subscription.
+ */
+export type SdkLoader = () => Promise<Sdk>;
+
+const defaultLoader: SdkLoader = () => import("@anthropic-ai/sdk");
+
+export class MissingSdkError extends Error {
+  constructor(cause: string) {
+    super(
+      [
+        "the `anthropic` backend needs the @anthropic-ai/sdk package, which is not installed.",
+        "It is optional on purpose: most rooms run on a coding CLI you are already signed into.",
+        "",
+        "  install it:   npm install -g @anthropic-ai/sdk",
+        "  or instead:   --backend claude-code | codex | copilot | opencode",
+        "",
+        `(${cause})`,
+      ].join("\n"),
+    );
+    this.name = "MissingSdkError";
+  }
+}
 
 /**
  * The built-in backend: one Anthropic conversation shared by the whole room.
@@ -13,17 +45,39 @@ import { TOOLS, riskOf, runTool, summarize } from "./tools.js";
 export class AnthropicBackend implements AgentBackend {
   readonly name = "anthropic";
   readonly model: string;
-  private client: Anthropic;
+  private client: Anthropic | null;
+  private sdk: Sdk | null = null;
+  private load: SdkLoader;
   private messages: Anthropic.MessageParam[] = [];
   private opts: BackendOptions;
 
-  constructor(opts: BackendOptions, client?: Anthropic) {
+  constructor(opts: BackendOptions, client?: Anthropic, load: SdkLoader = defaultLoader) {
     this.opts = opts;
     this.model = opts.model;
-    this.client = client ?? new Anthropic();
+    this.client = client ?? null;
+    this.load = load;
+  }
+
+  /** Resolve the SDK and client on first use, not at import time. */
+  private async ready(): Promise<Anthropic> {
+    if (this.client) return this.client;
+    try {
+      this.sdk = await this.load();
+    } catch (err) {
+      throw new MissingSdkError((err as Error)?.message ?? String(err));
+    }
+    this.client = new this.sdk.default();
+    return this.client;
   }
 
   async send(prompt: string, events: AgentEvents, signal: AbortSignal): Promise<TurnResult> {
+    let client: Anthropic;
+    try {
+      client = await this.ready();
+    } catch (err) {
+      return { stopReason: "error", error: (err as Error).message };
+    }
+
     this.messages.push({ role: "user", content: prompt });
     const usage: Record<string, number> = { input_tokens: 0, output_tokens: 0 };
 
@@ -33,7 +87,7 @@ export class AnthropicBackend implements AgentBackend {
       for (let iteration = 0; iteration < 40; iteration++) {
         if (signal.aborted) return this.stopped(usage);
 
-        const stream = this.client.messages.stream(
+        const stream = client.messages.stream(
           {
             model: this.model,
             max_tokens: this.opts.maxTokens,
@@ -126,7 +180,7 @@ export class AnthropicBackend implements AgentBackend {
       return { stopReason: "max_iterations", usage, error: "hit the tool-call ceiling for one turn" };
     } catch (err) {
       if (signal.aborted) return this.stopped(usage);
-      return { stopReason: "error", usage, error: describeError(err) };
+      return { stopReason: "error", usage, error: this.describeError(err) };
     }
   }
 
@@ -140,6 +194,24 @@ export class AnthropicBackend implements AgentBackend {
     return { stopReason: "interrupted", usage };
   }
 
+  /**
+   * Typed against the SDK's own error classes rather than message matching —
+   * using the namespace this instance loaded, since there is no static import
+   * to reach for.
+   */
+  private describeError(err: unknown): string {
+    const A = this.sdk?.default;
+    if (A) {
+      if (err instanceof A.AuthenticationError) {
+        return "authentication failed — set ANTHROPIC_API_KEY or run `ant auth login`";
+      }
+      if (err instanceof A.RateLimitError) return "rate limited — try again shortly";
+      if (err instanceof A.BadRequestError) return `bad request: ${err.message}`;
+      if (err instanceof A.APIError) return `API error ${err.status}: ${err.message}`;
+    }
+    return (err as Error)?.message ?? String(err);
+  }
+
   async close(): Promise<void> {
     /* nothing to release */
   }
@@ -149,14 +221,4 @@ function firstLines(s: string, n: number): string {
   const lines = s.split("\n");
   const head = lines.slice(0, n).join("\n");
   return lines.length > n ? `${head}\n…` : head;
-}
-
-export function describeError(err: unknown): string {
-  if (err instanceof Anthropic.AuthenticationError) {
-    return "authentication failed — set ANTHROPIC_API_KEY or run `ant auth login`";
-  }
-  if (err instanceof Anthropic.RateLimitError) return "rate limited — try again shortly";
-  if (err instanceof Anthropic.BadRequestError) return `bad request: ${err.message}`;
-  if (err instanceof Anthropic.APIError) return `API error ${err.status}: ${err.message}`;
-  return (err as Error)?.message ?? String(err);
 }

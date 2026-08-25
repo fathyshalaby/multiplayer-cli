@@ -2,6 +2,13 @@
 
 ## 0.7.0
 
+- **The Anthropic SDK is now optional.** It is 12MB and serves one backend —
+  the only one wanting an API key rather than a subscription — but a static
+  import made every install download it and put it in two thirds of the editor
+  extension's bundle. It now loads on demand, is an optional peer dependency,
+  and a missing install produces the command to fix it. The extension bundle
+  fell from 799KB to 258KB, and the CLI's only runtime dependency is `ws`.
+
 - **An editor seat.** A VS Code extension — working in **Cursor, VSCodium and
   Windsurf** too — that joins or hosts a room from the activity bar, with
   Approve and Veto on whatever is pending and the model's reply streaming in

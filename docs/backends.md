@@ -20,6 +20,21 @@ mpx backends     # what you have installed, and what `mpx share` would pick
 With no `--backend`, `mpx share` picks whichever CLI it finds on your PATH, in
 that order, falling back to `ANTHROPIC_API_KEY` and then to `echo`.
 
+### `anthropic` needs one extra package
+
+Every other backend runs on a coding CLI you are already signed into, so
+nothing else is needed. The `anthropic` backend talks to the API directly, and
+its SDK is 12MB — too much to put in front of every install for the one backend
+most rooms never use. It is an optional peer dependency:
+
+```bash
+npm install -g @anthropic-ai/sdk
+```
+
+Selecting `--backend anthropic` without it gives you that command rather than a
+stack trace. The editor extension does not bundle it at all, and does not offer
+the backend.
+
 ## The one limitation worth knowing
 
 Every backend gates what the room **sends**. Only `anthropic` and `echo` also

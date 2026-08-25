@@ -25,7 +25,10 @@ await build({
   platform: "node",
   target: "node18",
   format: "cjs",
-  external: ["vscode"],
+  // `vscode` is provided by the editor. The Anthropic SDK is optional and
+  // large — an editor seat hosts on a coding CLI, so bundling 12MB for the one
+  // API-key backend would be two thirds of this file for nothing.
+  external: ["vscode", "@anthropic-ai/sdk"],
   sourcemap: true,
   minify: false,
   logLevel: "info",

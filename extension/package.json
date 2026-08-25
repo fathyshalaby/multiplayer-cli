@@ -2,43 +2,115 @@
   "name": "multiplayer-cli-vscode",
   "displayName": "multiplayer-cli",
   "description": "Share one AI session with your team. Everyone sees the same transcript, and nothing is sent to the model until the room agrees.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "license": "MIT",
   "publisher": "fathyshalaby",
   "author": "Fathy Shalaby (https://github.com/fathyshalaby)",
-  "repository": { "type": "git", "url": "git+https://github.com/fathyshalaby/multiplayer-cli.git" },
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Other"],
-  "keywords": ["ai", "collaboration", "multiplayer", "pair programming", "claude", "codex", "copilot", "cursor"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fathyshalaby/multiplayer-cli.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "collaboration",
+    "multiplayer",
+    "pair programming",
+    "claude",
+    "codex",
+    "copilot",
+    "cursor"
+  ],
   "icon": "media/icon.png",
   "main": "./dist/extension.js",
   "activationEvents": [],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
-        { "id": "multiplayer", "title": "multiplayer", "icon": "media/activity.svg" }
+        {
+          "id": "multiplayer",
+          "title": "multiplayer",
+          "icon": "media/activity.svg"
+        }
       ]
     },
     "views": {
       "multiplayer": [
-        { "id": "multiplayer.room", "name": "Room", "type": "webview" }
+        {
+          "id": "multiplayer.room",
+          "name": "Room",
+          "type": "webview"
+        }
       ]
     },
     "commands": [
-      { "command": "multiplayer.share", "title": "Share this folder as a session", "category": "multiplayer" },
-      { "command": "multiplayer.join", "title": "Join a session", "category": "multiplayer" },
-      { "command": "multiplayer.propose", "title": "Propose to the room", "category": "multiplayer" },
-      { "command": "multiplayer.approve", "title": "Approve the pending proposal", "category": "multiplayer" },
-      { "command": "multiplayer.veto", "title": "Veto the pending proposal", "category": "multiplayer" },
-      { "command": "multiplayer.say", "title": "Say something to the room", "category": "multiplayer" },
-      { "command": "multiplayer.stop", "title": "Interrupt the model", "category": "multiplayer" },
-      { "command": "multiplayer.copyLink", "title": "Copy the invite link", "category": "multiplayer" },
-      { "command": "multiplayer.leave", "title": "Leave the session", "category": "multiplayer" }
+      {
+        "command": "multiplayer.share",
+        "title": "Share this folder as a session",
+        "category": "multiplayer"
+      },
+      {
+        "command": "multiplayer.join",
+        "title": "Join a session",
+        "category": "multiplayer"
+      },
+      {
+        "command": "multiplayer.propose",
+        "title": "Propose to the room",
+        "category": "multiplayer"
+      },
+      {
+        "command": "multiplayer.approve",
+        "title": "Approve the pending proposal",
+        "category": "multiplayer"
+      },
+      {
+        "command": "multiplayer.veto",
+        "title": "Veto the pending proposal",
+        "category": "multiplayer"
+      },
+      {
+        "command": "multiplayer.say",
+        "title": "Say something to the room",
+        "category": "multiplayer"
+      },
+      {
+        "command": "multiplayer.stop",
+        "title": "Interrupt the model",
+        "category": "multiplayer"
+      },
+      {
+        "command": "multiplayer.copyLink",
+        "title": "Copy the invite link",
+        "category": "multiplayer"
+      },
+      {
+        "command": "multiplayer.leave",
+        "title": "Leave the session",
+        "category": "multiplayer"
+      }
     ],
     "keybindings": [
-      { "command": "multiplayer.propose", "key": "ctrl+alt+p", "mac": "cmd+alt+p" },
-      { "command": "multiplayer.approve", "key": "ctrl+alt+y", "mac": "cmd+alt+y" },
-      { "command": "multiplayer.veto", "key": "ctrl+alt+n", "mac": "cmd+alt+n" }
+      {
+        "command": "multiplayer.propose",
+        "key": "ctrl+alt+p",
+        "mac": "cmd+alt+p"
+      },
+      {
+        "command": "multiplayer.approve",
+        "key": "ctrl+alt+y",
+        "mac": "cmd+alt+y"
+      },
+      {
+        "command": "multiplayer.veto",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n"
+      }
     ],
     "configuration": {
       "title": "multiplayer",
@@ -46,23 +118,37 @@
         "multiplayer.backend": {
           "type": "string",
           "default": "",
-          "enum": ["", "anthropic", "claude-code", "codex", "copilot", "opencode", "opencode-json", "echo"],
+          "enum": [
+            "",
+            "claude-code",
+            "codex",
+            "copilot",
+            "opencode",
+            "opencode-json",
+            "echo"
+          ],
           "enumDescriptions": [
             "Detect whichever coding CLI is installed",
-            "Claude via the API — the room also votes on tool calls",
             "A real `claude` session, shared",
             "OpenAI Codex",
             "GitHub Copilot CLI",
             "OpenCode",
             "OpenCode with structured events",
-            "Offline demo backend — no key, no spend"
+            "Offline demo backend \u2014 no key, no spend"
           ],
-          "description": "Which AI runs a session you host. Empty means detect."
+          "description": "Which AI runs a session you host. Empty means detect. The API-key `anthropic` backend is CLI-only \u2014 it needs an optional package the extension does not bundle."
         },
         "multiplayer.policy": {
           "type": "string",
           "default": "team",
-          "enum": ["solo", "pair", "team", "strict", "host", "round-robin"],
+          "enum": [
+            "solo",
+            "pair",
+            "team",
+            "strict",
+            "host",
+            "round-robin"
+          ],
           "description": "How the room decides what gets sent."
         },
         "multiplayer.relay": {
