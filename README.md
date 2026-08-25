@@ -15,7 +15,8 @@ that each learn a third of the context. `mpx` makes the session itself the
 shared object: everyone sees the same transcript, everyone can propose, and the
 room decides together what actually gets sent.
 
-Works with **Claude Code**, **Codex**, **GitHub Copilot CLI** and **OpenCode**.
+Works with **Claude Code**, **Codex**, **Copilot CLI**, **OpenCode**, **Gemini**,
+**Cursor**, **Aider** and **Amp** — whichever you are already signed into.
 
 ---
 
@@ -122,6 +123,7 @@ never goes on the wire. See [Security model](./docs/security.md).
 | `mpx share` | start a room and print a link to send |
 | `mpx join <link>` | take a seat — the share link or the `ws://` URL both work |
 | `mpx relay` | run a relay, so hosts need no open port |
+| `mpx rooms` | what a relay is hosting — names only |
 | `mpx serve` | run a room with no seat of your own |
 | `mpx backends` | which AI CLIs you can use, and which are installed |
 | `mpx policies` | how the room can decide things |
@@ -180,7 +182,7 @@ It starts the room and hands you the link to paste.
 ```bash
 npm install
 npm run build
-npm test          # 185 tests, no API key and no coding CLI required
+npm test          # 192 tests, no API key and no coding CLI required
 ```
 
 The layout follows the seams:

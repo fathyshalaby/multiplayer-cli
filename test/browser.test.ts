@@ -51,7 +51,7 @@ class Recorder implements AgentBackend {
 }
 
 async function scene() {
-  const relay = new Relay({ host: "127.0.0.1", port: 0, maxRooms: 4, maxPeersPerRoom: 8, joinsPerMinute: 60 });
+  const relay = new Relay({ host: "127.0.0.1", port: 0, maxRooms: 4, maxPeersPerRoom: 8, joinsPerMinute: 60, directory: false });
   const port = await relay.listen();
   const backend = new Recorder();
   const transport = new RelayTransport({ url: `ws://127.0.0.1:${port}`, roomName: "clickable" });

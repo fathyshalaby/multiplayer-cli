@@ -23,7 +23,7 @@ import { parseJoinTarget, isLocalHost } from "./util/url.js";
 import { detectBackend, installedBackends } from "./util/detect.js";
 import * as c from "./util/ansi.js";
 
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
@@ -48,6 +48,8 @@ async function main(): Promise<void> {
       return await cmdJoin(parsed);
     case "relay":
       return await cmdRelay(parsed);
+    case "rooms":
+      return await cmdRooms(parsed);
     case "transcript":
       return await cmdTranscript(parsed);
     case "policies":
@@ -364,6 +366,7 @@ async function cmdRelay(p: Parsed): Promise<void> {
     maxRooms: num(p, "max-rooms", 64),
     maxPeersPerRoom: num(p, "max-peers", 32),
     joinsPerMinute: num(p, "joins-per-minute", 60),
+    directory: bool(p, "directory", false),
     ...(bool(p, "quiet", false)
       ? {}
       : { onLog: (line: string) => console.log(`${new Date().toISOString().slice(11, 19)} ${line}`) }),
@@ -391,6 +394,66 @@ async function cmdRelay(p: Parsed): Promise<void> {
   };
   process.on("SIGINT", () => void stop());
   process.on("SIGTERM", () => void stop());
+}
+
+/* ------------------------------------------------------------------ */
+/* rooms                                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * List the rooms a relay is hosting.
+ *
+ * Only names, seat counts and ages — never a token. Seeing a room here does not
+ * get you into it; you still need the link someone sent you. It answers "is
+ * anything running?" without becoming a way in.
+ */
+async function cmdRooms(p: Parsed): Promise<void> {
+  const target = p.positional[0] ?? readConfig().relay ?? "";
+  if (!target) {
+    fatal("usage: mpx rooms <relay-url>   (or set one once with `mpx share --relay <url>`)");
+  }
+
+  const base = normalizeRelay(target!);
+  let body: { rooms?: { name: string; seats: number; upSeconds: number }[]; error?: string };
+  try {
+    const res = await fetch(`${base}/rooms`, { signal: AbortSignal.timeout(10_000) });
+    body = (await res.json()) as typeof body;
+    if (res.status === 404) {
+      fatal(`${base} does not publish a directory. The relay operator can enable it with \`mpx relay --directory\`.`);
+    }
+    if (!res.ok) fatal(`${base} answered ${res.status}`);
+  } catch (err) {
+    return fatal(`could not reach ${base}: ${(err as Error).message}`);
+  }
+
+  const rooms = body.rooms ?? [];
+  if (!rooms.length) {
+    console.log(c.dim(`  no rooms hosted on ${base} right now`));
+    return;
+  }
+  console.log("");
+  for (const r of rooms.sort((a, b) => a.name.localeCompare(b.name))) {
+    const seats = `${r.seats} seat${r.seats === 1 ? "" : "s"}`;
+    console.log(`  ${c.bold(r.name.padEnd(24))} ${seats.padEnd(9)} ${c.dim(`up ${humanAge(r.upSeconds)}`)}`);
+  }
+  console.log("");
+  console.log(c.dim("  Names only — you still need the invite link to join one."));
+  console.log("");
+}
+
+/** http(s) for the directory, whatever scheme the relay was given as. */
+function normalizeRelay(url: string): string {
+  const u = url.trim().replace(/\/+$/, "");
+  if (u.startsWith("wss://")) return "https://" + u.slice(6);
+  if (u.startsWith("ws://")) return "http://" + u.slice(5);
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  return "https://" + u;
+}
+
+function humanAge(seconds: number): string {
+  if (seconds < 90) return `${seconds}s`;
+  if (seconds < 5400) return `${Math.round(seconds / 60)}m`;
+  return `${Math.round(seconds / 3600)}h`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -504,6 +567,7 @@ ${c.bold("multiplayer-cli")} — make your AI session multiplayer
   Paste the link in chat. They click it, or run the command it shows.
   Type to propose. ${c.green("/y")} to agree. Nothing is sent until the room agrees.
 
+  ${c.dim("mpx rooms")}                    what is running on your relay
   ${c.dim("mpx help --all")}               every option
   ${c.dim("mpx backends")}                 which AI CLIs you can use
   ${c.dim("mpx policies")}                 how the room can decide things
@@ -513,6 +577,8 @@ ${c.bold("multiplayer-cli")} — make your AI session multiplayer
   console.log(`${c.bold("More commands")}
   mpx relay [--port n]         run a relay, so hosts need no open port
                                --tls-cert/--tls-key to serve wss:// directly
+                               --directory to publish the names it hosts
+  mpx rooms [relay-url]        what is running on a relay (names only)
   mpx serve [options]          run a room with no seat of your own
   mpx transcript <file>        replay a session's audit log
 

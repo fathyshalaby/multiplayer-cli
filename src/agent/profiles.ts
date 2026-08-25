@@ -23,6 +23,7 @@ export const codex: CliProfile = {
   parse: "jsonl",
   promptVia: "arg",
   resumable: true,
+  carriesSession: true,
   install: "install it with `npm i -g @openai/codex`",
   args(ctx: TurnContext): string[] {
     const base = ["exec"];
@@ -100,6 +101,8 @@ export const copilot: CliProfile = {
   parse: "text",
   promptVia: "arg",
   resumable: true,
+  // Copilot has no machine-readable output, so there is no id to capture.
+  carriesSession: false,
   install: "install it with `npm i -g @github/copilot`",
   args(ctx: TurnContext): string[] {
     // `-s` drops the stats and decoration so the room sees the answer only.
@@ -122,6 +125,7 @@ export const opencode: CliProfile = {
   parse: "text",
   promptVia: "arg",
   resumable: true,
+  carriesSession: false,
   install: "install it from https://opencode.ai",
   args(ctx: TurnContext): string[] {
     const base = ["run"];
@@ -144,6 +148,7 @@ export const opencodeJson: CliProfile = {
   ...opencode,
   name: "opencode-json",
   parse: "jsonl",
+  carriesSession: true,
   args(ctx: TurnContext): string[] {
     const base = ["run", "--format", "json"];
     if (ctx.sessionId) base.push("--session", ctx.sessionId);
@@ -192,11 +197,97 @@ export const opencodeJson: CliProfile = {
   },
 };
 
+/* ------------------------------------------------------------------ */
+/* Gemini CLI — headless prompt, plain text                            */
+/* ------------------------------------------------------------------ */
+
+export const gemini: CliProfile = {
+  name: "gemini",
+  bin: "gemini",
+  parse: "text",
+  promptVia: "arg",
+  // It has --output-format json and stream-json, but both have had open bugs;
+  // plain text streams fine and is what the room actually needs.
+  resumable: false,
+  carriesSession: false,
+  install: "install it with `npm i -g @google/gemini-cli`",
+  args(ctx: TurnContext): string[] {
+    const base = ["-p", ctx.prompt];
+    if (ctx.model) base.push("-m", ctx.model);
+    base.push(...ctx.extraArgs);
+    return base;
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/* Cursor CLI — print mode                                             */
+/* ------------------------------------------------------------------ */
+
+export const cursorAgent: CliProfile = {
+  name: "cursor",
+  bin: "cursor-agent",
+  parse: "text",
+  promptVia: "arg",
+  resumable: true,
+  carriesSession: false,
+  install: "install it from https://cursor.com/docs/cli",
+  args(ctx: TurnContext): string[] {
+    const base = ["-p", ctx.prompt, "--output-format", "text"];
+    if (ctx.sessionId) base.push("--resume", ctx.sessionId);
+    if (ctx.model) base.push("--model", ctx.model);
+    base.push(...ctx.extraArgs);
+    return base;
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/* Aider — one message, applies edits, exits                           */
+/* ------------------------------------------------------------------ */
+
+export const aider: CliProfile = {
+  name: "aider",
+  bin: "aider",
+  parse: "text",
+  promptVia: "arg",
+  resumable: false,
+  carriesSession: false,
+  install: "install it with `pip install aider-install && aider-install`",
+  args(ctx: TurnContext): string[] {
+    // --yes-always because a shared session has nobody to answer a prompt at
+    // the tool's own stdin; the room already agreed before this ran.
+    const base = ["--message", ctx.prompt, "--yes-always"];
+    if (ctx.model) base.push("--model", ctx.model);
+    base.push(...ctx.extraArgs);
+    return base;
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/* Amp — execute mode                                                  */
+/* ------------------------------------------------------------------ */
+
+export const amp: CliProfile = {
+  name: "amp",
+  bin: "amp",
+  parse: "text",
+  promptVia: "arg",
+  resumable: false,
+  carriesSession: false,
+  install: "install it with `npm i -g @sourcegraph/amp`",
+  args(ctx: TurnContext): string[] {
+    return ["-x", ctx.prompt, ...ctx.extraArgs];
+  },
+};
+
 export const PROFILES: Record<string, CliProfile> = {
-  codex: codex,
-  copilot: copilot,
-  opencode: opencode,
+  codex,
+  copilot,
+  opencode,
   "opencode-json": opencodeJson,
+  gemini,
+  cursor: cursorAgent,
+  aider,
+  amp,
 };
 
 function firstLine(s: unknown): string {

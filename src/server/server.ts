@@ -4,7 +4,7 @@ import { PROTOCOL_VERSION, decode, encode } from "../protocol.js";
 import { Room } from "../core/room.js";
 import { Transcript } from "../core/transcript.js";
 import { applyOverrides, resolvePreset } from "../core/policy.js";
-import { createBackend, multiplayerSystemPrompt, type BackendName } from "../agent/index.js";
+import { carriesSession, createBackend, multiplayerSystemPrompt, type BackendName } from "../agent/index.js";
 import type { AgentBackend, TurnResult } from "../agent/types.js";
 import { id } from "../util/id.js";
 import type { Peer, Transport, TransportInfo } from "./transport.js";
@@ -419,6 +419,15 @@ export class RoomServer {
       });
     }
     this.room.setAgent({ backend: this.backend.name, model: this.backend.model });
+    // Some CLIs have no way to hand a session from one invocation to the next.
+    // The room is still one conversation to the people in it, but not to the
+    // model, and that is worth saying before anyone relies on it.
+    if (!carriesSession(this.opts.backend)) {
+      this.room.notice(
+        "warn",
+        `${this.opts.backend} starts a fresh session each turn — it cannot carry the conversation between them`,
+      );
+    }
     return this.backend;
   }
 

@@ -50,8 +50,16 @@ export interface CliProfile {
   onEvent?(ev: any, sink: ProfileSink): void;
   /** Shown when the binary is missing, so the error is actionable. */
   install: string;
-  /** Whether the tool can continue a previous session. */
+  /** Whether the tool accepts a session id to continue, if one is supplied. */
   resumable: boolean;
+  /**
+   * Whether this profile learns the tool's session id on its own and reuses it.
+   *
+   * False means every turn starts the tool fresh: the room is still one
+   * conversation to the people in it, but not to the model. Worth saying out
+   * loud rather than letting a room discover it halfway through.
+   */
+  carriesSession: boolean;
   /** How the prompt reaches the process. */
   promptVia: "arg" | "stdin";
 }

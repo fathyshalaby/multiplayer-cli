@@ -287,3 +287,43 @@ test("every profile builds an argv that ends with the prompt", () => {
     if (profile.parse === "jsonl") assert.ok(profile.onEvent, `${name} maps its events`);
   }
 });
+
+/* ---- the wider set of CLIs --------------------------------------- */
+
+test("gemini, cursor, aider and amp each build the argv their docs describe", () => {
+  const ctx = { prompt: "fix the build", sessionId: null, cwd: "/w", model: "", first: true, extraArgs: [] };
+
+  assert.deepEqual(PROFILES.gemini!.args(ctx), ["-p", "fix the build"]);
+  assert.deepEqual(PROFILES.cursor!.args(ctx), ["-p", "fix the build", "--output-format", "text"]);
+  assert.deepEqual(PROFILES.aider!.args(ctx), ["--message", "fix the build", "--yes-always"]);
+  assert.deepEqual(PROFILES.amp!.args(ctx), ["-x", "fix the build"]);
+});
+
+test("cursor passes a session id through when it is given one", () => {
+  const argv = PROFILES.cursor!.args({
+    prompt: "go", sessionId: "abc123", cwd: "/w", model: "gpt-5", first: false, extraArgs: [],
+  });
+  assert.ok(argv.includes("--resume") && argv.includes("abc123"));
+  assert.ok(argv.includes("--model") && argv.includes("gpt-5"));
+});
+
+test("profiles are honest about whether they carry a session", () => {
+  // Getting this wrong would leave a room believing it has continuity it does
+  // not, which is worse than not having it.
+  assert.equal(PROFILES.codex!.carriesSession, true, "codex reports a thread id");
+  assert.equal(PROFILES["opencode-json"]!.carriesSession, true);
+  for (const name of ["copilot", "opencode", "gemini", "aider", "amp", "cursor"]) {
+    assert.equal(PROFILES[name]!.carriesSession, false, `${name} has no id to capture from plain text`);
+  }
+});
+
+test("a text-mode CLI streams straight through, whichever tool it is", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpx-wide-"));
+  for (const name of ["gemini", "cursor", "aider", "amp"]) {
+    const bin = stub(dir, name, `process.stdout.write("answered by ${name}\\n");`);
+    const s = sink();
+    const r = await make(dir, name, bin).send("go", s.events, new AbortController().signal);
+    assert.equal(r.stopReason, "end_turn", name);
+    assert.match(s.text.join(""), new RegExp(`answered by ${name}`), name);
+  }
+});
