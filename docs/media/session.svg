@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 539 368" width="539" height="368" role="img" aria-label="A recorded multiplayer-cli session: alice proposes a change, bob vetoes it with a reason, and the room talks it over.">
+<style>
+  .l{font-family:ui-monospace,"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;font-size:13px;white-space:pre;opacity:0;
+     animation-duration:8.40s;animation-iteration-count:infinite;animation-timing-function:steps(1,end)}
+  @keyframes r0{0%,0.000%{opacity:0}0.012%,100%{opacity:1}}@keyframes r1{0%,3.095%{opacity:0}3.107%,100%{opacity:1}}@keyframes r2{0%,6.190%{opacity:0}6.202%,100%{opacity:1}}@keyframes r3{0%,9.286%{opacity:0}9.298%,100%{opacity:1}}@keyframes r4{0%,12.381%{opacity:0}12.393%,100%{opacity:1}}@keyframes r5{0%,15.476%{opacity:0}15.488%,100%{opacity:1}}@keyframes r6{0%,18.571%{opacity:0}18.583%,100%{opacity:1}}@keyframes r7{0%,21.667%{opacity:0}21.679%,100%{opacity:1}}@keyframes r8{0%,24.762%{opacity:0}24.774%,100%{opacity:1}}@keyframes r9{0%,27.857%{opacity:0}27.869%,100%{opacity:1}}@keyframes r10{0%,30.952%{opacity:0}30.964%,100%{opacity:1}}@keyframes r11{0%,34.048%{opacity:0}34.060%,100%{opacity:1}}@keyframes r12{0%,37.143%{opacity:0}37.155%,100%{opacity:1}}@keyframes r13{0%,40.238%{opacity:0}40.250%,100%{opacity:1}}@keyframes r14{0%,43.333%{opacity:0}43.345%,100%{opacity:1}}
+  @media (prefers-reduced-motion:reduce){.l{opacity:1;animation:none}}
+</style>
+<rect width="539" height="368" rx="10" fill="#1c1e26"/>
+<rect width="539" height="46" rx="10" fill="#22242e"/>
+<rect y="36" width="539" height="10" fill="#22242e"/>
+<circle cx="21" cy="23" r="6" fill="#e88388"/><circle cx="41" cy="23" r="6" fill="#dbab79"/><circle cx="61" cy="23" r="6" fill="#a7cc8c"/>
+<text x="269.5" y="27" text-anchor="middle" style="font-family:ui-monospace,monospace;font-size:12px;fill:#6b7089">mpx join — amber-ridge-04</text>
+<text y="68" class="l" xml:space="preserve" style="animation-name:r0"><tspan x="22" style="fill:#c6c8d1;opacity:.62">  connecting to ws://127.0.0.1:7877/ …</tspan></text>
+<text y="88" class="l" xml:space="preserve" style="animation-name:r1"></text>
+<text y="108" class="l" xml:space="preserve" style="animation-name:r2"><tspan x="22" style="fill:#c6c8d1;font-weight:700">  joined amber-ridge-04</tspan><tspan style="fill:#c6c8d1;opacity:.62">  amber-ridge-04 · echo · /tmp/work/api</tspan></text>
+<text y="128" class="l" xml:space="preserve" style="animation-name:r3"><tspan x="22" style="fill:#c6c8d1;opacity:.62">  you are alice (member) · /help for commands</tspan></text>
+<text y="148" class="l" xml:space="preserve" style="animation-name:r4"></text>
+<text y="168" class="l" xml:space="preserve" style="animation-name:r5"><tspan x="22" style="fill:#c6c8d1;opacity:.62">  2 in the room</tspan></text>
+<text y="188" class="l" xml:space="preserve" style="animation-name:r6"><tspan x="22" style="fill:#c6c8d1">    </tspan><tspan style="fill:#66c2cd">●</tspan><tspan style="fill:#c6c8d1"> bob</tspan><tspan style="fill:#c6c8d1;opacity:.62">  </tspan><tspan style="fill:#dbab79;opacity:.62">host</tspan><tspan style="fill:#c6c8d1;opacity:.62"> </tspan><tspan style="fill:#66c2cd;opacity:.62">mic</tspan></text>
+<text y="208" class="l" xml:space="preserve" style="animation-name:r7"><tspan x="22" style="fill:#c6c8d1">    </tspan><tspan style="fill:#d290e4">●</tspan><tspan style="fill:#c6c8d1"> alice</tspan><tspan style="fill:#c6c8d1;opacity:.62">  </tspan><tspan style="fill:#c6c8d1;opacity:.62">you</tspan></text>
+<text y="228" class="l" xml:space="preserve" style="animation-name:r8"></text>
+<text y="248" class="l" xml:space="preserve" style="animation-name:r9"><tspan x="22" style="fill:#c6c8d1">  </tspan><tspan style="fill:#66c2cd">▸</tspan><tspan style="fill:#c6c8d1"> </tspan><tspan style="fill:#d290e4">alice</tspan><tspan style="fill:#c6c8d1"> proposes </tspan><tspan style="fill:#c6c8d1;font-weight:700">#1</tspan></text>
+<text y="268" class="l" xml:space="preserve" style="animation-name:r10"><tspan x="22" style="fill:#c6c8d1">      rewrite the auth middleware to use short-lived JWTs</tspan></text>
+<text y="288" class="l" xml:space="preserve" style="animation-name:r11"><tspan x="22" style="fill:#c6c8d1">      </tspan><tspan style="fill:#c6c8d1;opacity:.62">[</tspan><tspan style="fill:#c6c8d1">1/2 ✓ · 1 pending · 20s left</tspan><tspan style="fill:#c6c8d1;opacity:.62">]</tspan><tspan style="fill:#c6c8d1;opacity:.62">   /y #1  /n #1  /amend #1 …</tspan></text>
+<text y="308" class="l" xml:space="preserve" style="animation-name:r12"><tspan x="22" style="fill:#c6c8d1">      </tspan><tspan style="fill:#c6c8d1;opacity:.62">[</tspan><tspan style="fill:#c6c8d1">1/2 ✓ · 1 ✗</tspan><tspan style="fill:#c6c8d1;opacity:.62">]</tspan><tspan style="fill:#c6c8d1">  </tspan><tspan style="fill:#e88388">✗</tspan><tspan style="fill:#66c2cd">bob</tspan></text>
+<text y="328" class="l" xml:space="preserve" style="animation-name:r13"><tspan x="22" style="fill:#c6c8d1">  </tspan><tspan style="fill:#e88388">✗</tspan><tspan style="fill:#c6c8d1"> </tspan><tspan style="fill:#c6c8d1;font-weight:700">#1</tspan><tspan style="fill:#c6c8d1"> rejected</tspan><tspan style="fill:#c6c8d1;opacity:.62">  — vetoed: we agreed to keep sessions server-side</tspan></text>
+<text y="348" class="l" xml:space="preserve" style="animation-name:r14"><tspan x="22" style="fill:#c6c8d1">  </tspan><tspan style="fill:#c6c8d1;opacity:.62">💬</tspan><tspan style="fill:#c6c8d1"> </tspan><tspan style="fill:#66c2cd">bob</tspan><tspan style="fill:#c6c8d1;opacity:.62">:</tspan><tspan style="fill:#c6c8d1"> lets ask it to compare the two first</tspan></text>
+</svg>
