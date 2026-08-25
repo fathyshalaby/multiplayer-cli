@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.11.1
+
+- **The demo now opens on the product.** It led with the invite banner — six
+  lines of setup caveats, a scratch path and a localhost URL — and put the
+  voting below the fold of its own terminal. The recorder clears the screen
+  first, and the renderer treats a screen wipe as the point the recording
+  starts, so the first frame is the fork with two people deciding it.
+- **A recording for phones.** The 118-column one scaled to a 350px screen was
+  an unreadable smear, which is most of the opens for a link people paste into
+  chat. There is a 66-column recording now, which is what a narrow terminal
+  genuinely renders — the seat drops its sidebar under 84 columns — and the
+  page picks between them.
+- The landing page shows the four gates as a 2x2 rather than 3+1, which had
+  orphaned crossroads under a heading whose whole point is that it is the
+  fourth one.
+- The install line is `npx github:fathyshalaby/multiplayer-cli`, which works
+  today. `npx multiplayer-cli` will not until the package is published, and a
+  landing page whose first command 404s is worse than a long one that runs.
+
 ## 0.11.0
 
 - **A landing page** at `docs/index.html`, served by GitHub Pages from `/docs`.

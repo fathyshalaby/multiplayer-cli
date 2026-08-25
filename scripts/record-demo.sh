@@ -6,13 +6,19 @@
 # back — so the picture in the README cannot quietly stop matching the tool.
 #
 # Needs `script` (util-linux) for the pty. Run from the repo root:
-#   ./scripts/record-demo.sh
+#   ./scripts/record-demo.sh                       # the wide one
+#   ./scripts/record-demo.sh out.svg 24 68         # narrow, for phones
+#
+# Under 84 columns the seat drops its sidebar and gives the transcript the whole
+# width, which is the only way this is legible on a phone. That is the same
+# fallback a real narrow terminal gets, so the narrow recording is a real
+# recording too rather than a crop of the wide one.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${1:-$ROOT/docs/media/session.svg}"
-ROWS=30
-COLS=118
+ROWS="${2:-30}"
+COLS="${3:-118}"
 
 work="$(mktemp -d)"
 trap '[ -n "${KEEP:-}" ] || rm -rf "$work"' EXIT
@@ -72,6 +78,11 @@ alice() { printf '%s\n' "$1" >&3; sleep "${2:-3}"; }
 bob()   { printf '%s\n' "$1" >&4; sleep "${2:-3}"; }
 
 sleep 2
+# The invite banner is six lines of setup caveats and a scratch path — true,
+# and the least interesting thing in the session. Clearing it wipes the screen,
+# and the renderer treats a wipe as the point the recording starts, so the demo
+# opens on the room rather than on its paperwork.
+alice '/clear' 1.5
 alice 'rewrite the pagination layer to support cursors' 3.5
 bob '/y' 5
 alice '/fork' 3.5
