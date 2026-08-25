@@ -112,6 +112,7 @@ never goes on the wire. See [Security model](./docs/security.md).
 | [Reaching your team](./docs/relay.md) | LAN, relays, tunnels |
 | [Security model](./docs/security.md) | what the token protects, and what it does not |
 | [Account pooling](./docs/pooling.md) | spreading turns across accounts — experimental |
+| [The editor seat](./docs/editor.md) | the VS Code / Cursor extension |
 | [Protocol](./docs/protocol.md) | the wire format, for building your own client |
 
 ## Commands
@@ -147,6 +148,19 @@ mpx share --policy team --set mode=quorum --set quorum=3 --set timeout=90s
 
 Details in [Deciding together](./docs/deciding.md).
 
+## Use it from your editor
+
+There is an extension for **VS Code, Cursor, VSCodium and Windsurf** — the same
+seat, in a panel, with Approve and Veto on what is pending.
+
+```
+Extensions → search "multiplayer" → Install
+```
+
+It ships on Open VSX on purpose: Live Share is licensed to official Microsoft
+builds and blocked in forks, so Cursor has had no equivalent. See
+[The editor seat](./docs/editor.md).
+
 ## Use it from inside Claude Code
 
 ```bash
@@ -164,7 +178,7 @@ It starts the room and hands you the link to paste.
 ```bash
 npm install
 npm run build
-npm test          # 163 tests, no API key and no coding CLI required
+npm test          # 178 tests, no API key and no coding CLI required
 ```
 
 The layout follows the seams:
@@ -178,6 +192,8 @@ src/server/transport  how seats arrive: a local port, or a relay dialled out to
 src/server/relay.ts   the relay — a pipe that knows as little as possible
 src/agent/profiles.ts one small profile per coding CLI: argv in, room events out
 src/client/web/       the browser seat — one self-contained page, no build step
+src/client/roomView   what a graphical seat draws, editor-free so it is testable
+extension/            the VS Code / Cursor seat: glue around that view model
 ```
 
 `gate.ts` is deliberately pure: same inputs, same verdict, with `now` passed in.

@@ -3,3 +3,6 @@ dist/
 *.log
 .mpx/
 .env
+extension/dist/
+extension/node_modules/
+extension/*.vsix

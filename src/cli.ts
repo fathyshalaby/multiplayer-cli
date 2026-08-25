@@ -23,7 +23,7 @@ import { parseJoinTarget, isLocalHost } from "./util/url.js";
 import { detectBackend, installedBackends } from "./util/detect.js";
 import * as c from "./util/ansi.js";
 
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));

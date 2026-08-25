@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.0
+
+- **An editor seat.** A VS Code extension — working in **Cursor, VSCodium and
+  Windsurf** too — that joins or hosts a room from the activity bar, with
+  Approve and Veto on whatever is pending and the model's reply streaming in
+  place. Published to Open VSX, since Live Share is licensed to official
+  Microsoft builds and blocked in forks.
+- The extension host owns the connection and imports the same client, protocol
+  and crypto the terminal uses, so an editor seat is the same code with a
+  different view rather than a reimplementation.
+- `sessionPage()` no longer resolves its own path at import time. Bundlers that
+  emit CommonJS leave `import.meta.url` undefined, which threw and would have
+  stopped the extension activating.
+
 ## 0.6.0
 
 Sessions now cross the internet safely.
