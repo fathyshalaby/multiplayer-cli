@@ -116,6 +116,8 @@ async function shareFolder(): Promise<void> {
     resume: null,
     attach: null,
     pool: false,
+    lanes: cfg.get<number>("lanes") ?? 3,
+    laneSetup: cfg.get<string>("laneSetup") || null,
     transcriptPath: null,
   });
 

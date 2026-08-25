@@ -75,6 +75,8 @@ numbered proposal the room votes on.
 | `/abstain [#id]` | no opinion, so the room stops waiting on you |
 | `/amend [#id] <text>` | rewrite a pending proposal — this clears its votes |
 | `/withdraw [#id]` | take back your own proposal |
+| `/race [n] <prompt>` | try it n ways at once, then vote on the diffs |
+| `/lanes [n]` | what the lanes are doing; with a number, the host sets the default |
 | `/say <text>` | talk to the room without spending a turn |
 | `/stop` | interrupt the running turn (also `Ctrl-C`) |
 | `/queue` `/who` `/status` | what's pending, who's here, what's going on |
@@ -98,7 +100,9 @@ Turn it off with `--no-transcript`.
 
 ## Where to next
 
+- [The terminal seat](./the-screen.md) — the panes, the keys, and `--plain`
 - [Deciding together](./deciding.md) — the voting rules and how to tune them
+- [Racing](./racing.md) — one prompt, several attempts, one vote on the result
 - [Backends](./backends.md) — which AI CLI runs the session
 - [Reaching your team](./relay.md) — LAN, relay, tunnels
 - [Security model](./security.md) — what the token protects and what it does not

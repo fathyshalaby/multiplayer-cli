@@ -9,6 +9,7 @@ export const PRESETS: Record<string, RoomPolicy> = {
   solo: {
     prompt: gate({ mode: "open" }),
     tool: gate({ mode: "open" }),
+    lane: gate({ mode: "owner", autoApproveMs: null, proposerAutoYes: false }),
     autoAllowToolRisks: ["read", "write", "exec"],
     interrupt: "anyone",
     mergeQueued: true,
@@ -18,6 +19,7 @@ export const PRESETS: Record<string, RoomPolicy> = {
   pair: {
     prompt: gate({ mode: "consensus", autoApproveMs: 20_000, veto: true }),
     tool: gate({ mode: "consensus", autoApproveMs: 30_000, veto: true }),
+    lane: gate({ mode: "consensus", autoApproveMs: null, proposerAutoYes: false }),
     autoAllowToolRisks: ["read"],
     interrupt: "anyone",
     mergeQueued: true,
@@ -27,6 +29,7 @@ export const PRESETS: Record<string, RoomPolicy> = {
   team: {
     prompt: gate({ mode: "majority", autoApproveMs: 45_000, veto: true }),
     tool: gate({ mode: "majority", autoApproveMs: null, veto: true }),
+    lane: gate({ mode: "majority", autoApproveMs: null, proposerAutoYes: false }),
     autoAllowToolRisks: ["read"],
     interrupt: "anyone",
     mergeQueued: true,
@@ -36,6 +39,7 @@ export const PRESETS: Record<string, RoomPolicy> = {
   strict: {
     prompt: gate({ mode: "consensus", autoApproveMs: null, veto: true, proposerAutoYes: false }),
     tool: gate({ mode: "consensus", autoApproveMs: null, veto: true, proposerAutoYes: false }),
+    lane: gate({ mode: "consensus", autoApproveMs: null, proposerAutoYes: false }),
     autoAllowToolRisks: [],
     interrupt: "owner",
     mergeQueued: false,
@@ -45,6 +49,7 @@ export const PRESETS: Record<string, RoomPolicy> = {
   host: {
     prompt: gate({ mode: "owner", autoApproveMs: null }),
     tool: gate({ mode: "owner", autoApproveMs: null }),
+    lane: gate({ mode: "owner", autoApproveMs: null, proposerAutoYes: false }),
     autoAllowToolRisks: ["read"],
     interrupt: "owner",
     mergeQueued: false,
@@ -54,6 +59,7 @@ export const PRESETS: Record<string, RoomPolicy> = {
   "round-robin": {
     prompt: gate({ mode: "round-robin" }),
     tool: gate({ mode: "majority", autoApproveMs: 45_000, veto: true }),
+    lane: gate({ mode: "majority", autoApproveMs: null, proposerAutoYes: false }),
     autoAllowToolRisks: ["read"],
     interrupt: "anyone",
     mergeQueued: false,
@@ -84,6 +90,7 @@ export function clonePolicy(p: RoomPolicy): RoomPolicy {
   return {
     prompt: { ...p.prompt },
     tool: { ...p.tool },
+    lane: { ...p.lane },
     autoAllowToolRisks: [...p.autoAllowToolRisks],
     interrupt: p.interrupt,
     mergeQueued: p.mergeQueued,
@@ -129,6 +136,7 @@ function applyOne(p: RoomPolicy, key: string, value: string): string | null {
   const [head, ...rest] = key.split(".");
   if (head === "tool" && rest.length) return applyGate(p.tool, rest.join("."), value, "tool.");
   if (head === "prompt" && rest.length) return applyGate(p.prompt, rest.join("."), value, "prompt.");
+  if (head === "lane" && rest.length) return applyGate(p.lane, rest.join("."), value, "lane.");
 
   switch (key) {
     case "interrupt":

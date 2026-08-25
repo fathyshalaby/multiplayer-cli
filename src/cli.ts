@@ -6,6 +6,7 @@ import { LocalWsTransport, RelayTransport, type Transport } from "./server/trans
 import { Relay } from "./server/relay.js";
 import { Connection } from "./client/connection.js";
 import { Tui } from "./client/tui.js";
+import { FullScreenSeat, canFullScreen, type Seat, type SeatOptions } from "./client/fullscreen.js";
 import { LocalRunner } from "./client/runner.js";
 import {
   applyOverrides,
@@ -121,6 +122,8 @@ function buildRoomConfig(p: Parsed, easy = false) {
       resume: str(p, "resume", "") || null,
       attach: str(p, "attach", "") || null,
       pool: bool(p, "pool", false),
+      lanes: num(p, "lanes", 3),
+      laneSetup: str(p, "lane-setup", "") || null,
       transcriptPath,
     },
   };
@@ -173,6 +176,14 @@ function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServe
     ...(s.pool
       ? [c.yellow("  --pool: seats that join with --runner can take turns on their own account (experimental)")]
       : []),
+    ...(server.canRace
+      ? [
+          c.dim(`  /race tries a prompt ${server.room.laneCount} ways at once, and the room votes on the diff`),
+          ...(server.laneWarning ? [c.yellow(`  ${server.laneWarning}`)] : []),
+        ]
+      : s.lanes
+        ? [c.dim(`  no racing: ${server.laneReason ?? "not a git repository"}`)]
+        : []),
     "",
   ];
 
@@ -190,6 +201,19 @@ function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServe
   for (const w of warnings) out.push(c.yellow(`    ! ${w}`));
   out.push("");
   return out;
+}
+
+/**
+ * Pick a seat for this terminal.
+ *
+ * The full-screen one is the default because a room has outgrown a single
+ * scrolling column — a race alone puts several agents on screen at once. The
+ * plain one is not a lesser fallback: it is what you want in a pipe, in CI, in
+ * a 40-column pane, and in any terminal that will not do alternate screens.
+ */
+function makeSeat(p: Parsed, opts: SeatOptions): Seat {
+  const plain = bool(p, "plain", false);
+  return !plain && canFullScreen() ? new FullScreenSeat(opts) : new Tui(opts);
 }
 
 /* ------------------------------------------------------------------ */
@@ -214,7 +238,7 @@ async function cmdHost(p: Parsed, easy = false): Promise<void> {
     name,
     reconnect: true,
   });
-  const tui = new Tui({
+  const tui = makeSeat(p, {
     connection: conn,
     name,
     banner: inviteBanner(cfg, server, warnings),
@@ -287,7 +311,7 @@ async function cmdJoin(p: Parsed): Promise<void> {
 
   let runner: LocalRunner | null = null;
 
-  const tui: Tui = new Tui({
+  const tui: Seat = makeSeat(p, {
     connection: conn,
     name,
     ...(canRun ? { onServerMessage: (msg) => runner!.handle(msg) } : {}),
@@ -611,12 +635,22 @@ ${c.bold("Security")}
 ${c.bold("Seat options")}
   --name <name>          your display name (remembered)
   --observer             read-only: see everything, propose nothing
+  --plain                one scrolling column instead of the full-screen panes
+                         (also MPX_PLAIN=1; automatic when piped or on a small
+                         terminal)
 
 ${c.bold("Pointing at an existing session")}
   --resume <id>          continue a session/thread the backend already has
   --attach <url>         attach to a running \`opencode serve\`
   --backend-bin <path>   override the binary the backend launches
   --backend-arg <arg>    append a verbatim argument to it; repeatable
+
+${c.bold("Racing")}
+  In a git repository the room can try one prompt several ways at once, each in
+  its own worktree, and then vote on which diff lands.
+  /race [n] <prompt>     run it in n parallel lanes (default: --lanes)
+  --lanes <n>            lanes a bare /race opens; 0 turns racing off (default: 3)
+  --lane-setup <cmd>     run this in each fresh checkout first, e.g. "npm ci"
 
 ${c.bold("Sharing the cost")}  ${c.yellow("experimental")}
   By default every turn runs on the host's account. These let the room
@@ -625,9 +659,12 @@ ${c.bold("Sharing the cost")}  ${c.yellow("experimental")}
   --runner               (seat) offer your machine and subscription to the room
 
 ${c.bold("In the session")}
+  Panes: the reply on the left, the roster, open votes and lanes beside it.
+  Tab completes · ↑↓ history · PgUp/PgDn scrollback · Ctrl-C interrupts.
   type anything          propose it to the room
   /y   /n <reason>       approve, or veto with a reason that gets recorded
   /amend  /say  /stop    rewrite a proposal · talk to the room only · interrupt
+  /race [n] <prompt>     try it n ways at once, then vote on the diffs
   /help                  everything else
 
 ${c.dim("No AI CLI installed? `mpx share` still runs, on an offline demo backend.")}

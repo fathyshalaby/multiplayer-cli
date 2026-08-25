@@ -11,7 +11,7 @@ export type CommandResult =
   | { kind: "error"; text: string }
   | { kind: "noop" };
 
-export type LocalAction = "help" | "quit" | "who" | "queue" | "status" | "clear" | "transcript" | "policy";
+export type LocalAction = "help" | "quit" | "who" | "queue" | "status" | "clear" | "transcript" | "policy" | "lanes";
 
 interface Spec {
   names: string[];
@@ -66,6 +66,34 @@ const SPECS: Spec[] = [
     args: "[#id]",
     help: "take back a proposal you made",
     run: (rest, ctx) => ({ kind: "send", msg: { t: "withdraw", proposalId: handle(rest, ctx) } }),
+  },
+  {
+    names: ["race", "fork"],
+    args: "[n] <prompt>",
+    help: "try one prompt in n parallel worktrees, then vote on which result lands",
+    run: (rest) => {
+      const trimmed = rest.trim();
+      // `/race 4 add retries` sets the width; `/race add retries` uses the
+      // room's default. A leading number is only a count when there is a
+      // prompt after it, so "/race 3" is a mistake worth naming.
+      const m = /^(\d+)(\s+|$)/.exec(trimmed);
+      const count = m ? Number(m[1]) : 0; // 0 asks the room for its default
+      const text = m ? trimmed.slice(m[0].length).trim() : trimmed;
+      if (!text) return { kind: "error", text: "usage: /race [n] <prompt>" };
+      return { kind: "send", msg: { t: "propose", text, race: count } };
+    },
+  },
+  {
+    names: ["lanes"],
+    args: "[n]",
+    help: "show the current lanes, or set how many a bare /race opens (host)",
+    run: (rest) => {
+      const trimmed = rest.trim();
+      if (!trimmed) return { kind: "local", action: "lanes" };
+      const n = Number(trimmed);
+      if (!Number.isInteger(n) || n < 0) return { kind: "error", text: "usage: /lanes [n]" };
+      return { kind: "send", msg: { t: "setLanes", count: n } };
+    },
   },
   {
     names: ["say", "chat", "s"],

@@ -151,6 +151,18 @@
           ],
           "description": "How the room decides what gets sent."
         },
+        "multiplayer.lanes": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "maximum": 6,
+          "description": "Parallel worktrees a bare /race opens, when the folder is a git repository. 0 turns racing off."
+        },
+        "multiplayer.laneSetup": {
+          "type": "string",
+          "default": "",
+          "description": "Command run in each lane's fresh checkout before the agent starts, e.g. \"npm ci\". A worktree has no ignored files, so a lane has no node_modules until this puts them there."
+        },
         "multiplayer.relay": {
           "type": "string",
           "default": "",

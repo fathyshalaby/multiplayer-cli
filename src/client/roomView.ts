@@ -1,5 +1,14 @@
-import type { Participant, Proposal, RoomSnapshot, ServerMessage, Tally } from "../protocol.js";
-import { describeGate } from "../core/policy.js";
+import type {
+  LaneInfo,
+  Participant,
+  Proposal,
+  RoomPolicy,
+  RoomSnapshot,
+  RunnerInfo,
+  ServerMessage,
+  Tally,
+} from "../protocol.js";
+import { PRESETS, describeGate } from "../core/policy.js";
 import { renderTally } from "../core/gate.js";
 
 /**
@@ -12,7 +21,7 @@ import { renderTally } from "../core/gate.js";
  * is also where the bugs would be, and it should not need an editor to test.
  */
 
-export type EntryKind = "model" | "chat" | "notice" | "turn" | "tool";
+export type EntryKind = "model" | "chat" | "notice" | "turn" | "tool" | "raw";
 
 export interface LogEntry {
   kind: EntryKind;
@@ -47,7 +56,23 @@ export interface ViewState {
   shareUrl: string;
   participants: Participant[];
   proposals: ProposalCard[];
+  /** Parallel attempts from the current or most recent race. */
+  lanes: LaneInfo[];
+  /** How many lanes a bare race opens; 0 when this room cannot race. */
+  laneCount: number;
   log: LogEntry[];
+  /* Everything below is snapshot state a full-screen seat draws in its panes. */
+  /** Approved prompts waiting for the model to free up. */
+  queued: string[];
+  micHolderId: string | null;
+  runners: RunnerInfo[];
+  activeRunnerId: string | null;
+  turnCount: number;
+  transcriptPath: string | null;
+  policy: RoomPolicy;
+  /** What the session is doing right now, e.g. the tool it is asking about. */
+  agentDetail: string;
+  model: string;
 }
 
 const MAX_LOG = 400;
@@ -83,6 +108,9 @@ export class RoomView {
     return {
       ...this.state,
       participants: [...this.state.participants],
+      lanes: [...this.state.lanes],
+      queued: [...this.state.queued],
+      runners: [...this.state.runners],
       proposals: this.order.map((id) => this.cards.get(id)!).filter(Boolean).reverse(),
       log: this.state.log.slice(-MAX_LOG),
     };
@@ -125,11 +153,22 @@ export class RoomView {
       }
 
       case "turnStart":
+        // The room counts turns, but only tells us in a snapshot. Counting
+        // along keeps the status bar honest between them.
+        this.state.turnCount += 1;
         this.note("turn", `sending to the model (${msg.contributors.join(", ")})`);
+        return;
+
+      case "lanes":
+        this.state.lanes = msg.lanes;
+        this.state.laneCount = msg.laneCount;
         return;
 
       case "delta": {
         if (msg.kind !== "text") return;
+        // A lane's output belongs to its lane, not to the room's transcript:
+        // several agents writing at once would shred the reply in progress.
+        if (msg.lane) return;
         // Append to the reply in progress rather than making a new entry per
         // token, or the panel becomes thousands of one-word paragraphs.
         const last = this.state.log[this.state.log.length - 1];
@@ -143,16 +182,32 @@ export class RoomView {
       }
 
       case "toolResult":
+        if (msg.lane) return;
         this.note("tool", `${msg.ok ? "✓" : "✗"} ${msg.preview.split("\n")[0]}`);
         return;
 
       case "turnEnd":
+        if (msg.stopReason === "lanes") {
+          this.note("turn", "lanes finished — the room votes on which one lands");
+          return;
+        }
         this.note("turn", msg.error ? `turn failed — ${msg.error}` : "turn complete");
         return;
 
       case "agent":
         this.state.agent = msg.status.state;
+        this.state.agentDetail = msg.status.detail ?? "";
         if (msg.status.backend) this.state.backend = msg.status.backend;
+        if (msg.status.model) this.state.model = msg.status.model;
+        return;
+
+      case "queued":
+        this.state.queued = msg.proposalIds;
+        return;
+
+      case "runners":
+        this.state.runners = msg.runners;
+        this.state.activeRunnerId = msg.activeId;
         return;
 
       case "chat": {
@@ -169,6 +224,7 @@ export class RoomView {
       }
 
       case "policy":
+        this.state.policy = msg.policy;
         this.state.gate = describeGate(msg.policy.prompt);
         this.note("notice", `${msg.byName} changed the room's rules`);
         return;
@@ -193,6 +249,17 @@ export class RoomView {
     this.state.agent = room.agent.state;
     this.state.backend = room.agent.backend || this.state.backend;
     this.state.participants = room.participants;
+    this.state.lanes = room.lanes;
+    this.state.laneCount = room.laneCount;
+    this.state.policy = room.policy;
+    this.state.queued = room.queued;
+    this.state.micHolderId = room.micHolderId;
+    this.state.runners = room.runners;
+    this.state.activeRunnerId = room.activeRunnerId;
+    this.state.turnCount = room.turnCount;
+    this.state.transcriptPath = room.transcriptPath;
+    this.state.agentDetail = room.agent.detail ?? "";
+    this.state.model = room.agent.model || this.state.model;
     for (const p of room.proposals) {
       if (!this.cards.has(p.id)) this.order.push(p.id);
       this.cards.set(p.id, {
@@ -225,6 +292,23 @@ export class RoomView {
     return `$(organization) ${bits.join(" · ")}`;
   }
 
+  /**
+   * Put an already-formatted line in the transcript verbatim.
+   *
+   * The invite banner is laid out by the caller, escapes and indentation and
+   * all. Wrapping it again would measure the escapes as visible width and
+   * throw away the indentation that makes it readable.
+   */
+  raw(text: string): void {
+    this.state.log.push({ kind: "raw", text, who: "", color: 0, at: this.now() });
+    this.trim();
+  }
+
+  /** Drop the transcript, keeping the room. `/clear` in a full-screen seat. */
+  clearLog(): void {
+    this.state.log = [];
+  }
+
   reset(): void {
     this.state = blank();
     this.cards.clear();
@@ -246,6 +330,19 @@ function blank(): ViewState {
     shareUrl: "",
     participants: [],
     proposals: [],
+    lanes: [],
+    laneCount: 0,
     log: [],
+    queued: [],
+    micHolderId: null,
+    runners: [],
+    activeRunnerId: null,
+    turnCount: 0,
+    transcriptPath: null,
+    // A real policy arrives with the welcome; this only has to be renderable
+    // in the moment before it does.
+    policy: PRESETS.team!,
+    agentDetail: "",
+    model: "",
   };
 }

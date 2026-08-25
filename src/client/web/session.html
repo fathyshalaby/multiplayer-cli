@@ -43,6 +43,11 @@
     padding: 10px 12px; margin: 10px 0;
   }
   .card.tool { border-left-color: var(--warn); }
+  .card.lane { border-left-color: var(--ok); }
+  .card .diff { white-space: pre; overflow-x: auto; font-size: 11px; color: var(--dim); margin-top: 6px; }
+  .lanes { margin: 8px 0; font-size: 12px; }
+  .lanes .lane { display: flex; gap: 8px; padding: 2px 0; }
+  .lanes .lane b { min-width: 1.4em; }
   .card.done { opacity: .6; border-left-color: var(--line); }
   .card .head { font-size: 12px; color: var(--dim); margin-bottom: 5px; }
   .card .body { white-space: pre-wrap; word-break: break-word; }
@@ -109,7 +114,7 @@
 <script>
 (function () {
   "use strict";
-  const PROTOCOL = 3;
+  const PROTOCOL = 4;
   // The token lives in the fragment, so it is never sent to the relay or host
   // as part of an HTTP request and never lands in an access log.
   const hash = new URLSearchParams(location.hash.slice(1));
@@ -399,9 +404,10 @@
   function card(p, t) {
     let c = cards.get(p.id);
     if (!c) {
-      c = el("div", "card" + (p.kind === "tool" ? " tool" : ""));
+      c = el("div", "card" + (p.kind === "tool" ? " tool" : p.kind === "lane" ? " lane" : ""));
       c.appendChild(el("div", "head"));
       c.appendChild(el("div", "body"));
+      c.appendChild(el("div", "diff"));
       c.appendChild(el("div", "tally"));
       const btns = el("div", "btns");
       const yes = el("button", "yes", "Approve");
@@ -413,13 +419,25 @@
       };
       btns.appendChild(yes); btns.appendChild(no);
       c.appendChild(btns);
+      // Self-describing DOM: the id a card belongs to, and the lane it would
+      // land, so anything driving the page can address a card by what it is.
+      c.dataset.proposal = p.id;
+      if (p.lane) c.dataset.lane = p.lane;
       cards.set(p.id, c);
       push(c);
     }
-    const kind = p.kind === "tool" ? "wants to run" : "proposes";
-    c.querySelector(".head").innerHTML =
-      "<b>" + esc(p.authorName) + "</b> " + kind + " <b>" + esc(p.id) + "</b>";
-    c.querySelector(".body").textContent = p.text;
+    if (p.kind === "lane") {
+      c.querySelector(".head").innerHTML = "the race finished — <b>" + esc(p.id) + "</b>";
+      const lane = (lanes || []).find((l) => l.id === p.lane);
+      c.querySelector(".body").textContent = "land lane " + p.lane + (lane ? " — " + lane.summary : "");
+      c.querySelector(".diff").textContent = lane && lane.detail ? lane.detail : "";
+    } else {
+      const kind = p.kind === "tool" ? "wants to run" : "proposes";
+      c.querySelector(".head").innerHTML =
+        "<b>" + esc(p.authorName) + "</b> " + kind + " <b>" + esc(p.id) + "</b>" +
+        (p.race ? ' <span class="dim">(race, ' + p.race + " lanes)</span>" : "");
+      c.querySelector(".body").textContent = p.text;
+    }
 
     const open = p.status === "open";
     c.classList.toggle("done", !open);
@@ -435,10 +453,42 @@
     return c;
   }
 
+  /**
+   * Lane output is deliberately not streamed into the log: several agents
+   * writing at once is unreadable. What the room needs is a live list of the
+   * attempts, and then the diffs to vote on.
+   */
+  let lanes = [];
+  let laneRow = null;
+
+  function renderLanes() {
+    if (!lanes.length) {
+      if (laneRow) { laneRow.remove(); laneRow = null; }
+      return;
+    }
+    if (!laneRow) { laneRow = el("div", "lanes"); push(laneRow); }
+    laneRow.innerHTML = lanes
+      .map((l) => {
+        const mark = l.state === "done" ? '<span class="ok">✓</span>'
+          : l.state === "landed" ? '<span class="ok">⚑</span>'
+          : l.state === "running" ? "▸"
+          : l.state === "failed" ? '<span class="bad">✗</span>'
+          : '<span class="dim">·</span>';
+        const what = l.state === "running" ? "running"
+          : l.state === "empty" ? "no changes"
+          : l.state === "failed" ? (l.error || "failed")
+          : l.summary;
+        return '<div class="lane">' + mark + " <b>" + esc(l.id) + "</b> " +
+          '<span class="dim">' + esc(what) + "</span></div>";
+      })
+      .join("");
+  }
+
   function handle(m) {
     switch (m.t) {
+      case "lanes": lanes = m.lanes; renderLanes(); return;
       case "welcome":
-        me = m.you; snap = m.room; show();
+        me = m.you; snap = m.room; lanes = m.room.lanes || []; show();
         $("me").textContent = me.name + " ❯";
         $("me").style.color = color(me);
         renderMeta(); renderRoster();
@@ -455,11 +505,15 @@
       case "proposal": endStream(); card(m.proposal, m.tally); return;
       case "resolved": endStream(); card(m.proposal, m.tally); return;
       case "turnStart": endStream(); rule("── sending to the model (" + m.contributors.join(", ") + ") ──"); return;
-      case "delta": if (m.kind === "text") delta(m.text); return;
-      case "toolResult": endStream(); line((m.ok ? "✓ " : "✗ ") + "tool  " + m.preview.split("\n")[0]); return;
+      case "delta": if (m.lane) return; if (m.kind === "text") delta(m.text); return;
+      case "toolResult":
+        if (m.lane) return;
+        endStream(); line((m.ok ? "✓ " : "✗ ") + "tool  " + m.preview.split("\n")[0]); return;
       case "turnEnd":
         endStream();
-        rule("── turn complete" + (m.error ? " — " + m.error : "") + " ──");
+        rule(m.stopReason === "lanes"
+          ? "── lanes finished — vote on which one lands ──"
+          : "── turn complete" + (m.error ? " — " + m.error : "") + " ──");
         return;
       case "agent": if (snap) { snap.agent = m.status; renderMeta(); } return;
       case "chat":
@@ -495,6 +549,16 @@
     if (cmd === "say" || cmd === "chat") return send({ t: "chat", text: rest });
     if (cmd === "stop") return send({ t: "interrupt" });
     if (cmd === "me") return send({ t: "rename", name: rest });
+    if (cmd === "race" || cmd === "fork") {
+      const r = /^(\d+)(\s+|$)/.exec(rest);
+      const text = r ? rest.slice(r[0].length).trim() : rest;
+      if (!text) return line("✕ usage: /race [n] <prompt>", "bad");
+      return send({ t: "propose", text: text, race: r ? Number(r[1]) : 0 });
+    }
+    if (cmd === "lanes") {
+      if (!rest) return line(lanes.length ? lanes.map((l) => l.id + " " + l.state).join("  ") : "no lanes yet", "dim");
+      return send({ t: "setLanes", count: Number(rest) });
+    }
     line("✕ unknown command /" + cmd, "bad");
   }
 

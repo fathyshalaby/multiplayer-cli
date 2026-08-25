@@ -108,10 +108,12 @@ never goes on the wire. See [Security model](./docs/security.md).
 | | |
 |---|---|
 | [Getting started](./docs/getting-started.md) | install, share, join, and the commands in a session |
+| [The terminal seat](./docs/the-screen.md) | the full-screen panes, the keys, and when it uses one column |
 | [Deciding together](./docs/deciding.md) | the voting rules, presets, and how to tune them |
 | [Backends](./docs/backends.md) | which AI CLI runs the session, and adding another |
 | [Reaching your team](./docs/relay.md) | LAN, relays, tunnels |
 | [Security model](./docs/security.md) | what the token protects, and what it does not |
+| [Racing](./docs/racing.md) | trying one prompt several ways at once, and voting on the diff |
 | [Account pooling](./docs/pooling.md) | spreading turns across accounts — experimental |
 | [The editor seat](./docs/editor.md) | the VS Code / Cursor extension |
 | [Protocol](./docs/protocol.md) | the wire format, for building your own client |
@@ -149,6 +151,32 @@ mpx share --policy team --set mode=quorum --set quorum=3 --set timeout=90s
 ```
 
 Details in [Deciding together](./docs/deciding.md).
+
+## Try it three ways at once
+
+A vote decides whether to send a prompt. It cannot tell you whether the answer
+was any good — nobody knows that until somebody tries.
+
+```
+/race 3 make the retry logic exponential
+```
+
+The room runs the prompt three times in parallel, each agent in its own git
+worktree on its own branch. When they finish, everyone sees a diff per lane and
+votes on which one lands:
+
+```
+  ✓ A  3 files +64 -12        ⚑ #4 land lane A
+  ·  B  finished without changing anything
+  ✓ C  1 file +8 -3           ⚑ #5 land lane C
+```
+
+Approving one merges it into your checkout. The branches nobody took are kept,
+not deleted. Voting all of them down is a legitimate answer too — you found out
+that none of the three approaches was right, in the time it took to try one.
+
+Needs a git repository; `mpx share --lanes 0` turns it off. Details in
+[Racing](./docs/racing.md).
 
 ## Use it from your editor
 
