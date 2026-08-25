@@ -114,6 +114,7 @@ never goes on the wire. See [Security model](./docs/security.md).
 | [Reaching your team](./docs/relay.md) | LAN, relays, tunnels |
 | [Security model](./docs/security.md) | what the token protects, and what it does not |
 | [Racing](./docs/racing.md) | trying one prompt several ways at once, and voting on the diff |
+| [Crossroads](./docs/crossroads.md) | when the agent stops at a fork and asks the room which way |
 | [Account pooling](./docs/pooling.md) | spreading turns across accounts — experimental |
 | [The editor seat](./docs/editor.md) | the VS Code / Cursor extension |
 | [Protocol](./docs/protocol.md) | the wire format, for building your own client |
@@ -177,6 +178,29 @@ that none of the three approaches was right, in the time it took to try one.
 
 Needs a git repository; `mpx share --lanes 0` turns it off. Details in
 [Racing](./docs/racing.md).
+
+## Let the agent ask
+
+Every gate above is the room interrupting the agent. This is the other
+direction: the agent hits a real fork and stops to ask which way, *before*
+spending the work.
+
+```
+  ⑂ codex asks the room to pick a direction
+    Should the v1 API keep working after this change?
+
+    ⑂ #2 a — Shim it      keep v1 alive behind an adapter
+    ⑂ #3 b — Migrate      drop v1 and update every caller
+```
+
+Racing answers "which approach?" by building all of them. This answers it by
+asking — which is the only thing that works when the fork is about intent
+rather than code. *"Must v1 keep working?"* is a decision, not a fact; no
+amount of running the code settles it.
+
+Any backend can raise one, and anyone can raise one by hand with `/ask`. There
+is no timer: silence can approve a message, but it cannot pick a direction.
+Details in [Crossroads](./docs/crossroads.md).
 
 ## Use it from your editor
 

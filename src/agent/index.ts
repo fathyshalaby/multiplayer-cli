@@ -4,6 +4,7 @@ import { ClaudeCodeBackend } from "./claudeCode.js";
 import { EchoBackend } from "./echo.js";
 import { ProcessBackend } from "./process.js";
 import { PROFILES } from "./profiles.js";
+import { crossroadsInstruction } from "../core/crossroads.js";
 
 export type BackendName =
   | "anthropic"
@@ -129,6 +130,8 @@ export function multiplayerSystemPrompt(extra: string, participants: string[], c
     "- If the group disagrees about direction, lay out the tradeoff plainly and ask for a decision instead of choosing for them.",
     "- Tool calls may be put to a vote and declined. A declined tool is a decision, not an error: explain what you would have done and offer an alternative.",
     "- Keep answers tight. Everyone in the room reads every word you write.",
+    "",
+    crossroadsInstruction(),
     extra.trim(),
   ]
     .filter(Boolean)

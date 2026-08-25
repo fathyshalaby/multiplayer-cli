@@ -53,6 +53,7 @@ function snapshotMsg(): ServerMessage {
       activeRunnerId: null,
     lanes: [],
     laneCount: 0,
+    crossroads: null,
     },
   };
 }

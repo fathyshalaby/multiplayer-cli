@@ -1,7 +1,7 @@
 # Protocol
 
 Everything is newline-free JSON frames over one WebSocket. `src/protocol.ts` is
-the authority; this page is the map. Current version: **4** (`PROTOCOL_VERSION`).
+the authority; this page is the map. Current version: **5** (`PROTOCOL_VERSION`).
 
 A client that speaks this can be a seat — the browser seat in
 `src/client/web/session.html` is about 200 lines of it.
@@ -49,6 +49,7 @@ token with `4003`.
 | `rename` | change your display name |
 | `passMic` | hand over the mic in round-robin mode |
 | `setLanes` | how many lanes a bare race opens — host only |
+| `ask` | put a fork to the room: a question and two to six options |
 | `sync` | ask for a fresh snapshot |
 | `ping` | keepalive; answered with `pong` |
 
@@ -70,6 +71,7 @@ Runner messages — only meaningful in a `--pool` room — are `runner`,
 | `toolResult` | a tool ran, with a short preview; `lane` as above |
 | `turnEnd` | stop reason, usage, error. `stopReason: "lanes"` means a race finished |
 | `lanes` | the state of every lane in the current or most recent race |
+| `crossroads` | the fork the room is deciding, or `null` when it has settled |
 | `agent` | the session's state changed |
 | `chat` | side chat |
 | `policy` | the rules changed |
@@ -83,19 +85,32 @@ Runner messages — only meaningful in a `--pool` room — are `runner`,
 ```ts
 interface Proposal {
   id: string;            // "#4" — quotable in chat
-  kind: "prompt" | "tool" | "lane";
+  kind: "prompt" | "tool" | "lane" | "choice";
   authorId: string;      // participant id, or "agent" for tool calls and lanes
   authorName: string;
   text: string;
   tool?: ToolRequest;    // when kind === "tool"
   race?: number;         // on a prompt: run it in this many parallel lanes
   lane?: string;         // on a lane proposal: which lane landing would merge
+  option?: string;       // on a choice proposal: which direction it ratifies
   createdAt: number;
   deadline: number | null;   // when the timer decides
   votes: Record<string, { vote: Vote; at: number; comment?: string }>;
   edits: { at: number; by: string; byName: string; from: string }[];
   status: "open" | "approved" | "sent" | "rejected" | "withdrawn" | "expired";
   resolution?: string;   // human-readable, e.g. "vetoed: not on prod"
+}
+
+interface CrossroadsInfo {
+  id: string;
+  question: string;
+  askedById: string;     // participant id, or "agent"
+  askedByName: string;
+  options: { id: string; label: string; detail?: string; proposalId: string | null }[];
+  createdAt: number;
+  chosen: string | null; // the option id, once ratified
+  state: "open" | "decided" | "abandoned";
+  blocking: boolean;     // a turn is genuinely paused on this answer
 }
 
 interface LaneInfo {
@@ -132,6 +147,9 @@ interface Tally {
   argument, so it can be reused verbatim if you want the same arithmetic.
 - **A proposal id is stable**, so updates can replace an existing card.
 - **`delta` frames are fragments**, not lines. Buffer them.
+- **A crossroads is one question, not N proposals.** The options arrive as
+  ordinary `choice` proposals so voting works unchanged, but render the
+  question above them — the options mean nothing on their own.
 - **Keep lane output out of the main transcript.** A `delta` with `lane` set is
   one of several agents writing at once; interleaving them into one stream is
   unreadable. Render lanes as a list and let the diffs do the talking.

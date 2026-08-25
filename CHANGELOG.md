@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.11.0
+
+- **Crossroads.** The agent stops at a genuine fork and asks the room which way
+  to go, before spending the work. Every other gate is the room interrupting
+  the agent; this is the agent asking the room, which is the one direction the
+  design was missing.
+  - Racing answers "which approach?" by building all of them. This answers it
+    by asking — the only thing that works when the fork is about intent rather
+    than code. *"Must v1 keep working?"* is a decision, not a fact.
+  - Any backend can raise one, by writing a `[[crossroads]]` block; the block
+    is lifted out of the transcript rather than read to the room as prose. The
+    built-in `anthropic` backend gets a real `ask_room` tool instead.
+  - Only some backends can be held mid-turn, and the room says which is
+    happening rather than blurring it: `anthropic` genuinely pauses, and a CLI
+    that has already streamed its answer gets the room's decision as its next
+    message.
+  - `/ask <q> | <a> | <b>` puts a fork to the room by hand, on any backend.
+  - Voting every option down is a real outcome, and the agent is told so
+    instead of being left waiting.
+  - Its own gate, `choice.*`. No timer in any preset: silence is consent for a
+    question, not for a direction.
+  - Proposed by Fathy's collaborator.
+- Protocol 5.
+
 ## 0.10.1
 
 - **Fixed: `mpx --version` had been reporting 0.8.0 for two releases.** The

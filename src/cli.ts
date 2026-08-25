@@ -557,16 +557,17 @@ function cmdPolicies(): void {
   for (const name of presetNames()) {
     const p = resolvePreset(name)!;
     console.log(
-      `  ${c.bold(name.padEnd(13))} prompts: ${describeGate(p.prompt).padEnd(22)} tools: ${describeGate(p.tool).padEnd(22)} landing: ${describeGate(p.lane).padEnd(12)} auto-allow: ${p.autoAllowToolRisks.join(",") || "none"}`,
+      `  ${c.bold(name.padEnd(13))} prompts: ${describeGate(p.prompt).padEnd(22)} tools: ${describeGate(p.tool).padEnd(20)} landing: ${describeGate(p.lane).padEnd(11)} direction: ${describeGate(p.choice)}`,
     );
   }
   console.log("");
-  console.log(c.dim("  landing is the vote on which lane of a /race gets merged. No preset gives it a"));
-  console.log(c.dim("  timer: silence is consent for a question, not for a merge."));
+  console.log(c.dim("  landing picks which lane of a /race gets merged; direction ratifies a fork the"));
+  console.log(c.dim("  agent stopped at. Neither has a timer in any preset: silence is consent for a"));
+  console.log(c.dim("  question, not for a merge and not for a direction."));
   console.log("");
   console.log(c.dim("  override any of it:  mpx host --policy team --set mode=quorum --set quorum=3 --set timeout=90s"));
   console.log(c.dim("  keys: mode, quorum, veto, timeout, minYes, proposerAutoYes, soloBypass,"));
-  console.log(c.dim("        tool.*, lane.*, autoAllow, interrupt, merge, attribute"));
+  console.log(c.dim("        tool.*, lane.*, choice.*, autoAllow, interrupt, merge, attribute"));
   console.log("");
 }
 
@@ -676,6 +677,12 @@ ${c.bold("Racing")}
   --lanes <n>            lanes a bare /race opens; 0 turns racing off (default: 3)
   --lane-setup <cmd>     run this in each fresh checkout first, e.g. "npm ci"
 
+${c.bold("Crossroads")}
+  The other direction: the agent stops at a fork and asks the room which way,
+  before spending the work. Any backend can raise one.
+  /ask <q> | <a> | <b>   put a fork to the room yourself
+  /fork                  what the room is deciding right now
+
 ${c.bold("Sharing the cost")}  ${c.yellow("experimental")}
   By default every turn runs on the host's account. These let the room
   carry on when that account runs out of capacity:
@@ -689,6 +696,7 @@ ${c.bold("In the session")}
   /y   /n <reason>       approve, or veto with a reason that gets recorded
   /amend  /say  /stop    rewrite a proposal · talk to the room only · interrupt
   /race [n] <prompt>     try it n ways at once, then vote on the diffs
+  /ask <q> | <a> | <b>   ask the room to pick a direction
   /help                  everything else
 
 ${c.dim("No AI CLI installed? `mpx share` still runs, on an offline demo backend.")}

@@ -1,4 +1,4 @@
-import type { LaneInfo } from "../protocol.js";
+import type { CrossroadsInfo, LaneInfo } from "../protocol.js";
 import { describeGate } from "../core/policy.js";
 import * as c from "../util/ansi.js";
 import type { LogEntry, ProposalCard, ViewState } from "./roomView.js";
@@ -156,6 +156,11 @@ function sidePane(opts: RenderOptions, cols: number, rows: number): string[] {
   // Oldest first, because an overflowing sidebar drops from the top: listing
   // newest-first would cut off the vote that just arrived, which is the one
   // nobody can afford to miss. It also puts lane votes in lane order.
+  // The fork goes above the votes on it: the question is the thing that has to
+  // be read before the options mean anything.
+  const fork = v.crossroads?.state === "open" ? v.crossroads : null;
+  if (fork) out.push("", ...section("the fork", forkBlock(fork, inner)));
+
   const open = v.proposals.filter((p) => p.open).slice().reverse();
   if (open.length) out.push("", ...section("deciding", open.flatMap((p) => voteBlock(p, inner))));
   if (v.queued.length) out.push("", ...section("queued", [c.dim(`${v.queued.length} waiting for the model`)]));
@@ -189,11 +194,32 @@ function roster(v: ViewState, cols: number): string[] {
 
 function voteBlock(card: ProposalCard, cols: number): string[] {
   const p = card.proposal;
-  const mark = p.kind === "tool" ? c.yellow("⚙") : p.kind === "lane" ? c.green("⚑") : c.cyan("▸");
-  const label = p.kind === "prompt" ? p.authorName : p.kind === "lane" ? `lane ${p.lane}` : "tool";
+  const mark =
+    p.kind === "tool"
+      ? c.yellow("⚙")
+      : p.kind === "lane"
+        ? c.green("⚑")
+        : p.kind === "choice"
+          ? c.blue("⑂")
+          : c.cyan("▸");
+  const label =
+    p.kind === "prompt"
+      ? p.authorName
+      : p.kind === "lane"
+        ? `lane ${p.lane}`
+        : p.kind === "choice"
+          ? "direction"
+          : "tool";
   const head = `${mark} ${c.bold(p.id)} ${c.dim(label)}`;
   const text = c.truncate(p.text.replace(/\s+/g, " "), cols - 2);
   return [head, `  ${text}`, `  ${c.dim(card.progress)}`];
+}
+
+function forkBlock(f: CrossroadsInfo, cols: number): string[] {
+  return [
+    ...c.wrapText(f.question, cols).map((l) => c.bold(l)),
+    ...(f.blocking ? [c.dim("the turn is paused on this")] : []),
+  ];
 }
 
 function laneBlock(l: LaneInfo, cols: number): string[] {

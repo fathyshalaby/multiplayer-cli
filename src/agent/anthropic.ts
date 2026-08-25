@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentBackend, AgentEvents, BackendOptions, TurnResult } from "./types.js";
-import { TOOLS, riskOf, runTool, summarize } from "./tools.js";
+import { ASK_ROOM, TOOLS, riskOf, runTool, summarize } from "./tools.js";
 
 /** The SDK namespace, loaded on demand. */
 type Sdk = typeof import("@anthropic-ai/sdk");
@@ -135,6 +135,13 @@ export class AnthropicBackend implements AgentBackend {
         const results: Anthropic.ToolResultBlockParam[] = [];
 
         for (const call of calls) {
+          // A fork goes to the room as a choice, not as a yes/no on running a
+          // tool — and holds this turn open until they answer, which is the
+          // whole point of asking before doing the work.
+          if (call.name === ASK_ROOM) {
+            results.push(await this.askRoom(call, events));
+            continue;
+          }
           if (signal.aborted) {
             results.push({
               type: "tool_result",
@@ -182,6 +189,38 @@ export class AnthropicBackend implements AgentBackend {
       if (signal.aborted) return this.stopped(usage);
       return { stopReason: "error", usage, error: this.describeError(err) };
     }
+  }
+
+  /** Put the model's fork to the room and hand back whatever they chose. */
+  private async askRoom(
+    call: Anthropic.ToolUseBlock,
+    events: AgentEvents,
+  ): Promise<Anthropic.ToolResultBlockParam> {
+    const input = (call.input ?? {}) as { question?: unknown; options?: unknown };
+    const question = typeof input.question === "string" ? input.question : "";
+    const options = Array.isArray(input.options)
+      ? input.options.filter((o): o is string => typeof o === "string")
+      : [];
+
+    if (!events.onCrossroads || !question || options.length < 2) {
+      return {
+        type: "tool_result",
+        tool_use_id: call.id,
+        content: !events.onCrossroads
+          ? "This room cannot put a fork to a vote. Choose the direction you think best and say which you chose and why."
+          : "A crossroads needs a question and at least two options. Try again, or just choose.",
+        is_error: true,
+      };
+    }
+
+    const chosen = await events.onCrossroads(question, options);
+    return {
+      type: "tool_result",
+      tool_use_id: call.id,
+      content: chosen
+        ? `The room chose: ${chosen}. Carry on from there.`
+        : "The room did not pick a direction. Use your judgement, and say plainly which way you went and why.",
+    };
   }
 
   private stopped(usage: Record<string, number>): TurnResult {

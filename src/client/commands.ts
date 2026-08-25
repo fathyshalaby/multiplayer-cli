@@ -11,7 +11,7 @@ export type CommandResult =
   | { kind: "error"; text: string }
   | { kind: "noop" };
 
-export type LocalAction = "help" | "quit" | "who" | "queue" | "status" | "clear" | "transcript" | "policy" | "lanes";
+export type LocalAction = "help" | "quit" | "who" | "queue" | "status" | "clear" | "transcript" | "policy" | "lanes" | "fork";
 
 interface Spec {
   names: string[];
@@ -68,7 +68,26 @@ const SPECS: Spec[] = [
     run: (rest, ctx) => ({ kind: "send", msg: { t: "withdraw", proposalId: handle(rest, ctx) } }),
   },
   {
-    names: ["race", "fork"],
+    names: ["ask"],
+    args: "<question> | <option> | <option>",
+    help: "put a fork to the room and let it pick the direction",
+    run: (rest) => {
+      const parts = rest.split("|").map((s) => s.trim()).filter(Boolean);
+      const [question, ...options] = parts;
+      if (!question || options.length < 2) {
+        return { kind: "error", text: "usage: /ask <question> | <option> | <option>" };
+      }
+      return { kind: "send", msg: { t: "ask", question, options } };
+    },
+  },
+  {
+    names: ["fork"],
+    args: "",
+    help: "show the fork the room is deciding, if there is one",
+    run: () => ({ kind: "local", action: "fork" }),
+  },
+  {
+    names: ["race"],
     args: "[n] <prompt>",
     help: "try one prompt in n parallel worktrees, then vote on which result lands",
     run: (rest) => {

@@ -93,6 +93,14 @@ for the price of finding out in parallel.
 Landing is `git merge --no-ff` into the branch the room is hosted on, so
 "we raced three attempts and took B" stays legible in `git log`.
 
+## When to ask instead
+
+Racing answers "which approach?" by building all of them. When the fork is
+about *intent* rather than code — must this stay backwards compatible, how much
+scope do we take on — no amount of running the code settles it, and three lanes
+would spend three agents producing three correct answers to a question only the
+room can decide. [Crossroads](./crossroads.md) costs a paragraph instead.
+
 ## The lane gate
 
 Landing has its own gate, separate from prompts and tools, because merging into

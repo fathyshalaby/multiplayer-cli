@@ -1,6 +1,8 @@
 import { EventEmitter } from "node:events";
 import type {
   AgentStatus,
+  CrossroadsInfo,
+  CrossroadsOption,
   GatePolicy,
   LaneInfo,
   Participant,
@@ -21,6 +23,20 @@ import { clonePolicy } from "./policy.js";
 
 /** A ceiling on parallel attempts: every lane is a real agent and real spend. */
 export const MAX_LANES = 6;
+
+/** Option labels, short enough to say out loud. */
+const LETTERS = ["a", "b", "c", "d", "e", "f"];
+
+/** For turns the room has already decided; the gate would only be ceremony. */
+const OPEN_GATE: GatePolicy = {
+  mode: "open",
+  quorum: 1,
+  veto: false,
+  autoApproveMs: null,
+  minYesOnTimeout: 0,
+  proposerAutoYes: false,
+  soloBypass: true,
+};
 
 export interface RoomOptions {
   name: string;
@@ -74,6 +90,8 @@ export class Room extends EventEmitter {
   lanes: LaneInfo[] = [];
   /** Lanes a bare `/race` opens. 0 means this room cannot race at all. */
   laneCount = 0;
+  /** The fork the room is deciding, if there is one. One at a time. */
+  crossroads: CrossroadsInfo | null = null;
   /** Set false on close so late timers cannot resurrect a dead room. */
   private alive = true;
 
@@ -231,6 +249,118 @@ export class Room extends EventEmitter {
   }
 
   /**
+   * Put a fork to the room.
+   *
+   * One option, one proposal — which means a choice among several reuses the
+   * whole yes/no voting system rather than needing arithmetic of its own. The
+   * first option to reach its threshold wins and the rest close, exactly as
+   * lanes do.
+   */
+  ask(
+    askedById: string,
+    askedByName: string,
+    question: string,
+    options: { label: string; detail?: string }[],
+    blocking: boolean,
+  ): CrossroadsInfo | { error: string } {
+    if (this.crossroads && this.crossroads.state === "open") {
+      return { error: "the room is already deciding one fork — settle that first" };
+    }
+    const text = question.trim();
+    if (!text) return { error: "a crossroads needs a question" };
+    const picked = options.filter((o) => o.label.trim()).slice(0, LETTERS.length);
+    if (picked.length < 2) return { error: "a crossroads needs at least two options" };
+
+    const info: CrossroadsInfo = {
+      id: id("fork", 6),
+      question: text,
+      askedById,
+      askedByName,
+      options: [],
+      createdAt: this.now(),
+      chosen: null,
+      state: "open",
+      blocking,
+    };
+    this.crossroads = info;
+
+    for (const [i, opt] of picked.entries()) {
+      const option: CrossroadsOption = {
+        id: LETTERS[i]!,
+        label: opt.label.trim(),
+        ...(opt.detail?.trim() ? { detail: opt.detail.trim() } : {}),
+        proposalId: null,
+      };
+      info.options.push(option);
+      const prop = this.create(
+        "choice",
+        "agent",
+        askedByName,
+        `${option.id}. ${option.label}`,
+        this.policy.choice,
+        undefined,
+        undefined,
+        undefined,
+        option.id,
+      );
+      option.proposalId = prop.id;
+    }
+    this.emitMsg({ t: "crossroads", crossroads: info });
+    return info;
+  }
+
+  /** Ratify one option and close the others. */
+  settleCrossroads(optionId: string, reason: string): void {
+    const info = this.crossroads;
+    if (!info || info.state !== "open") return;
+    info.chosen = optionId;
+    info.state = "decided";
+    for (const prop of this.openProposals()) {
+      if (prop.kind === "choice" && prop.option !== optionId) {
+        this.resolve(prop, "withdrawn", reason);
+      }
+    }
+    this.emitMsg({ t: "crossroads", crossroads: info });
+  }
+
+  /** Nobody picked. The fork closes without an answer, which is also an answer. */
+  abandonCrossroads(reason: string): void {
+    const info = this.crossroads;
+    if (!info || info.state !== "open") return;
+    info.state = "abandoned";
+    for (const prop of this.openProposals()) {
+      if (prop.kind === "choice") this.resolve(prop, "withdrawn", reason);
+    }
+    this.emitMsg({ t: "crossroads", crossroads: info });
+  }
+
+  /** The option a proposal ratifies, if it is a choice proposal. */
+  optionFor(p: Proposal): CrossroadsOption | undefined {
+    return this.crossroads?.options.find((o) => o.id === p.option);
+  }
+
+  /**
+   * Send something to the model without another vote.
+   *
+   * Used to carry a crossroads answer back to a backend that could not be held
+   * mid-turn: the room has already voted on the direction, and making it vote
+   * again on the sentence conveying that vote would be ceremony for its own
+   * sake.
+   */
+  injectTurn(text: string, authorName: string): void {
+    const prop = this.create("prompt", "agent", authorName, text, OPEN_GATE);
+    if (prop.status === "open") {
+      prop.status = "approved";
+      prop.resolvedAt = this.now();
+      prop.resolution = "the room already decided this";
+      this.clearTimer(prop.id);
+      this.queue.push(prop.id);
+      this.emitMsg({ t: "queued", proposalIds: [...this.queue] });
+      this.emit("promptReady");
+    }
+  }
+
+  /**
    * Close the lanes that lost. Called once a landing has actually succeeded,
    * not when it is merely approved: a merge that hits a conflict leaves the
    * other attempts on the table rather than throwing them away.
@@ -255,6 +385,7 @@ export class Room extends EventEmitter {
     tool?: ToolRequest,
     race?: number,
     lane?: string,
+    option?: string,
   ): Proposal {
     const prop: Proposal = {
       id: this.counter.next(),
@@ -265,6 +396,7 @@ export class Room extends EventEmitter {
       tool,
       ...(race ? { race } : {}),
       ...(lane ? { lane } : {}),
+      ...(option ? { option } : {}),
       createdAt: this.now(),
       deadline: gate.autoApproveMs === null ? null : this.now() + gate.autoApproveMs,
       votes: {},
@@ -358,6 +490,7 @@ export class Room extends EventEmitter {
   private gateFor(p: Proposal): GatePolicy {
     if (p.kind === "tool") return this.policy.tool;
     if (p.kind === "lane") return this.policy.lane;
+    if (p.kind === "choice") return this.policy.choice;
     return this.policy.prompt;
   }
 
@@ -421,6 +554,10 @@ export class Room extends EventEmitter {
       this.emit("laneDecision", p, true, t.reason);
       return;
     }
+    if (p.kind === "choice") {
+      this.emit("choiceDecision", p, true, t.reason);
+      return;
+    }
     this.queue.push(p.id);
     this.emitMsg({ t: "queued", proposalIds: [...this.queue] });
     if (this.policy.prompt.mode === "round-robin") this.advanceMic();
@@ -436,6 +573,7 @@ export class Room extends EventEmitter {
     this.emitMsg({ t: "resolved", proposal: p, tally: { ...t, decision: "reject", reason } });
     if (p.kind === "tool") this.emit("toolDecision", p, false, reason);
     if (p.kind === "lane") this.emit("laneDecision", p, false, reason);
+    if (p.kind === "choice") this.emit("choiceDecision", p, false, reason);
   }
 
   private clearTimer(pid: string): void {
@@ -601,6 +739,7 @@ export class Room extends EventEmitter {
       activeRunnerId: this.activeRunnerId,
       lanes: this.lanes,
       laneCount: this.laneCount,
+      crossroads: this.crossroads,
     };
   }
 

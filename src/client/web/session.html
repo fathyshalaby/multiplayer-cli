@@ -44,6 +44,9 @@
   }
   .card.tool { border-left-color: var(--warn); }
   .card.lane { border-left-color: var(--ok); }
+  .card.choice { border-left-color: #71bef2; }
+  .fork { margin: 10px 0; padding: 8px 10px; border-left: 3px solid #71bef2; background: rgba(113,190,242,.07); }
+  .fork b { display: block; margin-bottom: 2px; }
   .card .diff { white-space: pre; overflow-x: auto; font-size: 11px; color: var(--dim); margin-top: 6px; }
   .lanes { margin: 8px 0; font-size: 12px; }
   .lanes .lane { display: flex; gap: 8px; padding: 2px 0; }
@@ -114,7 +117,7 @@
 <script>
 (function () {
   "use strict";
-  const PROTOCOL = 4;
+  const PROTOCOL = 5;
   // The token lives in the fragment, so it is never sent to the relay or host
   // as part of an HTTP request and never lands in an access log.
   const hash = new URLSearchParams(location.hash.slice(1));
@@ -404,7 +407,7 @@
   function card(p, t) {
     let c = cards.get(p.id);
     if (!c) {
-      c = el("div", "card" + (p.kind === "tool" ? " tool" : p.kind === "lane" ? " lane" : ""));
+      c = el("div", "card" + (p.kind === "tool" ? " tool" : p.kind === "lane" ? " lane" : p.kind === "choice" ? " choice" : ""));
       c.appendChild(el("div", "head"));
       c.appendChild(el("div", "body"));
       c.appendChild(el("div", "diff"));
@@ -426,7 +429,12 @@
       cards.set(p.id, c);
       push(c);
     }
-    if (p.kind === "lane") {
+    if (p.kind === "choice") {
+      const opt = (fork && fork.options || []).find((o) => o.id === p.option);
+      c.querySelector(".head").innerHTML = "the room picks a direction — <b>" + esc(p.id) + "</b>";
+      c.querySelector(".body").textContent = (p.option || "?") + ". " + (opt ? opt.label : p.text);
+      c.querySelector(".diff").textContent = opt && opt.detail ? opt.detail : "";
+    } else if (p.kind === "lane") {
       c.querySelector(".head").innerHTML = "the race finished — <b>" + esc(p.id) + "</b>";
       const lane = (lanes || []).find((l) => l.id === p.lane);
       c.querySelector(".body").textContent = "land lane " + p.lane + (lane ? " — " + lane.summary : "");
@@ -460,6 +468,19 @@
    */
   let lanes = [];
   let laneRow = null;
+  let fork = null;
+  let forkRow = null;
+
+  /* The question has to be readable above the options, or the options mean nothing. */
+  function renderFork() {
+    if (!fork || fork.state !== "open") {
+      if (forkRow) { forkRow.remove(); forkRow = null; }
+      return;
+    }
+    if (!forkRow) { forkRow = el("div", "fork"); push(forkRow); }
+    forkRow.innerHTML = "<b>⑂ " + esc(fork.askedByName) + " asks: " + esc(fork.question) + "</b>" +
+      (fork.blocking ? '<span class="dim">the turn is paused until the room picks</span>' : "");
+  }
 
   function renderLanes() {
     if (!lanes.length) {
@@ -487,8 +508,16 @@
   function handle(m) {
     switch (m.t) {
       case "lanes": lanes = m.lanes; renderLanes(); return;
+      case "crossroads":
+        fork = m.crossroads;
+        renderFork();
+        if (fork && fork.state === "decided") {
+          const c2 = (fork.options || []).find((o) => o.id === fork.chosen);
+          line("⑂ the room chose " + fork.chosen + ": " + (c2 ? c2.label : ""), "ok");
+        }
+        return;
       case "welcome":
-        me = m.you; snap = m.room; lanes = m.room.lanes || []; show();
+        me = m.you; snap = m.room; lanes = m.room.lanes || []; fork = m.room.crossroads || null; show();
         $("me").textContent = me.name + " ❯";
         $("me").style.color = color(me);
         renderMeta(); renderRoster();
@@ -554,6 +583,11 @@
       const text = r ? rest.slice(r[0].length).trim() : rest;
       if (!text) return line("✕ usage: /race [n] <prompt>", "bad");
       return send({ t: "propose", text: text, race: r ? Number(r[1]) : 0 });
+    }
+    if (cmd === "ask") {
+      const parts = rest.split("|").map((s) => s.trim()).filter(Boolean);
+      if (parts.length < 3) return line("✕ usage: /ask <question> | <option> | <option>", "bad");
+      return send({ t: "ask", question: parts[0], options: parts.slice(1) });
     }
     if (cmd === "lanes") {
       if (!rest) return line(lanes.length ? lanes.map((l) => l.id + " " + l.state).join("  ") : "no lanes yet", "dim");
