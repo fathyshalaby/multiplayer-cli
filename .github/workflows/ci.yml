@@ -39,6 +39,9 @@ jobs:
       - run: node scripts/build-extension.mjs
       - run: node --test dist/test/extension.test.js
       - run: cd extension && npx vsce package --no-dependencies --out multiplayer-cli.vsix
+      # Activating from source says nothing about what gets published; this
+      # checks the package itself has what it needs and nothing it does not.
+      - run: node scripts/check-vsix.mjs extension/multiplayer-cli.vsix
       - uses: actions/upload-artifact@v5
         with:
           name: multiplayer-cli-vsix

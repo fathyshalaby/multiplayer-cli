@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.2
+
+- **The published extension was two thirds waste.** With no `.vscodeignore`,
+  `vsce` packaged the TypeScript source, the build config, the integration
+  tests and a 602KB source map — none of it reachable at runtime. 231KB and 13
+  files becomes 85KB and 8.
+- CI checks the packaged `.vsix` itself, not just the extension running from
+  source. Activating from source proves the extension works; it says nothing
+  about what gets published, which is how a missing runtime file or a shipped
+  test would reach a user unnoticed.
+
 ## 0.11.1
 
 - **The demo now opens on the product.** It led with the invite banner — six
