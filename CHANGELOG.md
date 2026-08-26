@@ -2,6 +2,20 @@
 
 ## 0.12.0
 
+- **`/split` runs different work in parallel lanes, each landing on its own.**
+  `/race` opens several lanes on one prompt and the room takes one of them;
+  `/split a | b` opens one lane per prompt and the room can take all of them.
+  The difference is what the lanes are to each other — a race's are substitutes,
+  a split's are complements, and "which is better, the frontend or the backend"
+  is a malformed question rather than a hard one. Approving one lane of a split
+  withdraws nothing, and the split ends once every lane has been decided.
+  Merges queue rather than run at once, because two `git merge` calls in one
+  checkout is a corrupted index.
+- **A split says when two lanes claimed the same file.** Either two agents did
+  the same work twice, or there is a merge conflict the room has not met yet.
+  It is a warning and never a veto: a route and its test touching one file is
+  normal, and a tool that refuses on a heuristic is one people route around. A
+  race stays quiet, because its lanes are meant to overlap.
 - **Lanes can be looked at, not just read.** `--lane-preview "<cmd>"` starts
   each finished lane on its own port, so the room votes on the running thing
   rather than on a diffstat. `{port}` is substituted into the command and

@@ -1,4 +1,5 @@
 import type { ClientMessage } from "../protocol.js";
+import { MAX_LANES } from "../core/room.js";
 
 export interface CommandContext {
   /** Newest open proposal id, used when a vote omits the handle. */
@@ -100,6 +101,27 @@ const SPECS: Spec[] = [
       const text = m ? trimmed.slice(m[0].length).trim() : trimmed;
       if (!text) return { kind: "error", text: "usage: /race [n] <prompt>" };
       return { kind: "send", msg: { t: "propose", text, race: count } };
+    },
+  },
+  {
+    names: ["split"],
+    args: "<prompt> | <prompt> | ...",
+    help: "run different work in parallel lanes, then vote on each one separately",
+    run: (rest) => {
+      // `|` rather than a repeated flag, because the thing being written is a
+      // list of sentences and people already separate those by hand.
+      const pieces = rest
+        .split("|")
+        .map((piece) => piece.trim())
+        .filter(Boolean);
+      if (pieces.length < 2) {
+        return {
+          kind: "error",
+          text: 'usage: /split <prompt> | <prompt> — e.g. /split add the API route | add the settings page',
+        };
+      }
+      if (pieces.length > MAX_LANES) return { kind: "error", text: `at most ${MAX_LANES} pieces` };
+      return { kind: "send", msg: { t: "propose", text: pieces.join(" | "), split: pieces } };
     },
   },
   {

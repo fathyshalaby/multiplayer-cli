@@ -674,11 +674,13 @@ ${c.bold("Pointing at an existing session")}
   --backend-bin <path>   override the binary the backend launches
   --backend-arg <arg>    append a verbatim argument to it; repeatable
 
-${c.bold("Racing")}
-  In a git repository the room can try one prompt several ways at once, each in
-  its own worktree, and then vote on which diff lands.
-  /race [n] <prompt>     run it in n parallel lanes (default: --lanes)
-  --lanes <n>            lanes a bare /race opens; 0 turns racing off (default: 3)
+${c.bold("Lanes")}
+  In a git repository the room can work in several worktrees at once, then vote
+  on what comes back. Two shapes, and the difference is what the lanes are to
+  each other:
+  /race [n] <prompt>     the same prompt n ways — the room lands one of them
+  /split <a> | <b>       different work at once — the room lands each on its own
+  --lanes <n>            lanes a bare /race opens; 0 turns lanes off (default: 3)
   --lane-setup <cmd>     run this in each fresh checkout first, e.g. "npm ci"
   --lane-preview <cmd>   start each finished lane so the room can look at it,
                          e.g. "npm run dev -- --port {port}" ({port} and $PORT

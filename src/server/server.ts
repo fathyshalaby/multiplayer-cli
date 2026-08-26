@@ -12,7 +12,8 @@ import type { Peer, Transport, TransportInfo } from "./transport.js";
 import { deriveAuthKey } from "../core/crypto.js";
 import { SecureChannel } from "../core/secure.js";
 import { RoutedBackend } from "./runners.js";
-import { Race } from "./lanes.js";
+import { LANE_IDS, Race } from "./lanes.js";
+import { describeOverlaps, findOverlaps } from "../core/overlap.js";
 import { DEFAULT_BASE_PORT, DEFAULT_HOST, DEFAULT_READY_MS } from "../core/preview.js";
 import { inspectRepo, type RepoInfo } from "../core/worktree.js";
 
@@ -110,6 +111,23 @@ export class RoomServer {
   private repo: RepoInfo | null = null;
   /** The race whose lanes the room is currently voting on, if any. */
   private race: Race | null = null;
+  /**
+   * Whether the current set of lanes are complements rather than substitutes.
+   *
+   * A race's lanes are three tries at one thing, so approving one withdraws the
+   * rest. A split's are different work meant to land together, so approving one
+   * says nothing about the others and the race ends only when every lane has
+   * been decided.
+   */
+  private splitting = false;
+  /**
+   * Serialises merges without making them exclusive.
+   *
+   * A race lands at most once, so a flag was enough. A split can land every
+   * lane, and two `git merge` calls at once in the same checkout would tread on
+   * each other — so landings queue behind one another instead of racing.
+   */
+  private landChain: Promise<void> = Promise.resolve();
   /** Resolves the turn a blocking crossroads is holding, once the room picks. */
   private pendingChoice: ((label: string | null) => void) | null = null;
   /**
@@ -342,12 +360,13 @@ export class RoomServer {
         // `race: 0` is "however many lanes this room uses", resolved here so
         // the seat does not have to track the room's default itself.
         const race = msg.race === undefined ? undefined : msg.race || this.room.laneCount;
-        if (race !== undefined && !this.canRace) {
-          return fail(this.laneReason ?? "this room cannot race — it is not hosted in a git repository");
+        const parallel = race !== undefined || msg.split !== undefined;
+        if (parallel && !this.canRace) {
+          return fail(this.laneReason ?? "this room cannot use lanes — it is not hosted in a git repository");
         }
-        const result = this.room.propose(pid, msg.text, race);
+        const result = this.room.propose(pid, msg.text, race, msg.split);
         if ("error" in result) fail(result.error);
-        else if (race !== undefined && this.laneWarning) this.room.notice("warn", this.laneWarning);
+        else if (parallel && this.laneWarning) this.room.notice("warn", this.laneWarning);
         return;
       }
       case "ask": {
@@ -554,7 +573,13 @@ export class RoomServer {
    * repository, and a room voting on six diffs from two different questions is
    * a worse experience than waiting.
    */
-  private async runRace(turnId: string, prompt: string, count: number, batch: Proposal[]): Promise<void> {
+  private async runRace(
+    turnId: string,
+    prompt: string,
+    count: number,
+    batch: Proposal[],
+    pieces?: string[],
+  ): Promise<void> {
     if (!this.repo) {
       this.room.notice("error", this.laneReason ?? "this room is not hosted in a git repository");
       return;
@@ -563,6 +588,12 @@ export class RoomServer {
       this.room.notice("warn", "a race is already waiting on a decision — resolve it first");
       return;
     }
+    // Lane ids are handed out in this order, so the pieces line up with A, B, C
+    // in the order they were written — which is the order the room said them.
+    const prompts: Record<string, string> | undefined = pieces
+      ? Object.fromEntries(pieces.map((piece, i) => [LANE_IDS[i]!, piece.trim()]))
+      : undefined;
+    this.splitting = pieces !== undefined;
 
     const contributors = [...new Set(batch.map((p) => p.authorName))];
     this.room.lastTurnAuthors = new Set(batch.map((p) => p.authorId));
@@ -570,7 +601,11 @@ export class RoomServer {
     const start: ServerMessage = { t: "turnStart", turnId, prompt, contributors };
     this.transcript.write(start);
     this.broadcast(start);
-    this.room.setAgent({ state: "streaming", turnId, detail: `${count} lanes` });
+    this.room.setAgent({
+      state: "streaming",
+      turnId,
+      detail: this.splitting ? `${count} lanes, split` : `${count} lanes`,
+    });
 
     const race = new Race({
       repo: this.repo,
@@ -579,6 +614,7 @@ export class RoomServer {
       prompt,
       count,
       setup: this.opts.laneSetup,
+      ...(prompts ? { prompts } : {}),
       preview: this.opts.lanePreview
         ? {
             command: this.opts.lanePreview,
@@ -619,8 +655,18 @@ export class RoomServer {
       return;
     }
 
-    // One proposal per lane, all open at once. Voting for a lane is voting to
-    // land it; the room picks by approving one, not by ranking them.
+    // Only for a split. In a race the lanes are three tries at one thing, so of
+    // course they touch the same files, and saying so would be noise. In a
+    // split they are meant to land together, and two of them claiming one file
+    // is either duplicated work or a merge conflict nobody has met yet.
+    if (this.splitting) {
+      const clash = describeOverlaps(findOverlaps(landable.map((l) => ({ id: l.id, paths: l.paths ?? [] }))));
+      if (clash) this.room.notice("warn", clash);
+    }
+
+    // One proposal per lane, all open at once. In a race, voting for a lane is
+    // voting to land it *instead of* the others; in a split it is voting to
+    // land it as well as them, and each is decided on its own.
     for (const lane of landable) {
       const prop = this.room.proposeLane(lane);
       lane.proposalId = prop.id;
@@ -656,6 +702,7 @@ export class RoomServer {
     const race = this.race;
     const laneId = p.lane;
     if (!race || !laneId) return;
+    if (this.splitting) return this.onSplitDecision(race, laneId, allow, reason);
 
     // A landing withdraws the other lanes, which arrives back here as a
     // rejection for each of them. That is bookkeeping, not the room deciding
@@ -693,12 +740,59 @@ export class RoomServer {
     await this.endRace();
   }
 
+  /**
+   * The same decision, for lanes that are not competing.
+   *
+   * Nothing is withdrawn here: approving the backend lane says nothing about
+   * the frontend one, and a room that had to re-open the other half after
+   * taking the first would have learned to stop splitting. The race ends when
+   * the room has decided about every lane, not when it has decided about one.
+   */
+  private async onSplitDecision(race: Race, laneId: string, allow: boolean, reason: string): Promise<void> {
+    if (allow) {
+      // Queued rather than concurrent: two merges at once in one checkout is a
+      // corrupted index, and the second lane's conflicts are only knowable
+      // after the first has landed anyway.
+      this.landChain = this.landChain.then(async () => {
+        if (!this.race) return;
+        const landed = await race.land(laneId);
+        if (!landed.ok) {
+          this.room.notice(
+            "error",
+            `lane ${laneId} did not land — ${landed.error}. Its work is on ${race.list().find((l) => l.id === laneId)?.branch ?? "its branch"}`,
+          );
+        } else {
+          this.room.notice("info", `lane ${laneId} landed on ${this.repo?.branch ?? "HEAD"} (${reason})`);
+        }
+        this.publishLanes();
+        await this.endSplitIfSettled();
+      });
+      await this.landChain;
+      return;
+    }
+
+    await race.discard(laneId);
+    this.publishLanes();
+    await this.endSplitIfSettled();
+  }
+
+  /** A split is over once no lane is still waiting on the room. */
+  private async endSplitIfSettled(): Promise<void> {
+    if (!this.race) return;
+    if (this.room.openProposals().some((o) => o.kind === "lane")) return;
+    const landed = this.race.list().filter((l) => l.state === "landed").length;
+    if (!landed) this.room.notice("info", "no lane landed");
+    await this.endRace();
+  }
+
   /** Dispose of the checkouts, and say where the branches are. */
   private async endRace(): Promise<void> {
     const race = this.race;
     if (!race) return;
     this.race = null;
     this.landing = false;
+    this.splitting = false;
+    this.landChain = Promise.resolve();
     const branches = await race.close();
     this.room.lanes = race.list();
     this.publishLanes();
@@ -749,8 +843,14 @@ export class RoomServer {
 
     const turnId = id("turn", 6);
     const prompt = this.room.composeTurn(batch);
-    if (batch.length === 1 && batch[0]!.race) {
-      await this.runRace(turnId, prompt, batch[0]!.race!, batch);
+    const only = batch.length === 1 ? batch[0]! : null;
+    if (only?.split) {
+      await this.runRace(turnId, prompt, only.split.length, batch, only.split);
+      if (this.room.queuedIds().length) void this.pump();
+      return;
+    }
+    if (only?.race) {
+      await this.runRace(turnId, prompt, only.race, batch);
       if (this.room.queuedIds().length) void this.pump();
       return;
     }

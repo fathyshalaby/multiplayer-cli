@@ -38,8 +38,13 @@ export interface RaceOptions {
   now?: () => number;
 }
 
-/** Lanes are named for people to say out loud, not for a database. */
-const NAMES = ["A", "B", "C", "D", "E", "F"];
+/**
+ * Lanes are named for people to say out loud, not for a database.
+ *
+ * Exported because a split has to know which id each of its pieces will get
+ * before the race opens, and two lists that must agree are one list.
+ */
+export const LANE_IDS = ["A", "B", "C", "D", "E", "F"];
 
 /**
  * One race: the same prompt attempted N times, each in its own worktree.
@@ -94,7 +99,7 @@ export class Race {
    * result the room can vote on.
    */
   async run(signal: AbortSignal): Promise<LaneInfo[]> {
-    const ids = NAMES.slice(0, this.opts.count);
+    const ids = LANE_IDS.slice(0, this.opts.count);
     for (const id of ids) {
       const info: LaneInfo = {
         id,
@@ -197,6 +202,7 @@ export class Race {
     }
     info.summary = stat.value.summary;
     info.detail = stat.value.detail;
+    info.paths = stat.value.paths;
     info.commit = stat.value.commit;
     this.finish(info, "done", undefined);
     // Deliberately not awaited. A dev server can take a minute to answer, and
@@ -262,6 +268,20 @@ export class Race {
     info.state = "landed";
     this.publish();
     return { ok: true };
+  }
+
+  /**
+   * Drop one lane, leaving its siblings alone.
+   *
+   * `markDiscarded` is the race's version — everything but the winner. A split
+   * rejects lanes one at a time, and the others are still live questions.
+   */
+  async discard(id: string): Promise<void> {
+    const info = this.infos.get(id);
+    if (!info || info.state !== "done") return;
+    info.state = "discarded";
+    await this.stopPreview(id);
+    this.publish();
   }
 
   markDiscarded(except?: string): void {

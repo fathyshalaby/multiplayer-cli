@@ -143,6 +143,13 @@ the trip, and it would be a lot of machinery to arrive somewhere unreliable.
 Seats that cannot reach the host can check out the lane's branch instead — it is
 already there, which is the whole point of leaving them behind.
 
+## When the lanes are not competing
+
+Racing assumes the lanes are **substitutes** — three tries at one thing, of
+which the room takes one. When they are **complements** instead, different work
+meant to land together, approving one should not withdraw the others. That is
+[splitting](./splitting.md): one prompt per lane, and a vote on each.
+
 ## When to ask instead
 
 Racing answers "which approach?" by building all of them. When the fork is

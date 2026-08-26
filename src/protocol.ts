@@ -109,6 +109,15 @@ export interface Proposal {
   tool?: ToolRequest;
   /** On a prompt: run it this many times in parallel lanes instead of once. */
   race?: number;
+  /**
+   * On a prompt: one prompt per lane, run at once, each landing on its own.
+   *
+   * The difference from `race` is what the lanes are to each other. Racing
+   * makes substitutes and the room takes one. Splitting makes complements and
+   * the room can take all of them — "which is better, the frontend or the
+   * backend" being a question with no answer.
+   */
+  split?: string[];
   /** On a lane proposal: which lane landing this would merge. */
   lane?: string;
   /** On a choice proposal: which crossroads option this would ratify. */
@@ -220,6 +229,8 @@ export interface LaneInfo {
   summary: string;
   /** Per-file diffstat, for reading before voting. */
   detail: string;
+  /** The paths this lane touched, for spotting two lanes claiming one file. */
+  paths?: string[];
   commit: string | null;
   error?: string;
   /** The proposal the room votes on to land this lane, once it has one. */
@@ -302,7 +313,7 @@ export interface RoomSnapshot {
 export type ClientMessage =
   | { t: "hello"; name: string; token?: string; protocol: number; observer?: boolean }
   /* `race` runs the prompt in that many parallel lanes; 0 means the room's default. */
-  | { t: "propose"; text: string; race?: number }
+  | { t: "propose"; text: string; race?: number; split?: string[] }
   | { t: "vote"; proposalId: string; vote: Vote; comment?: string }
   | { t: "amend"; proposalId: string; text: string }
   | { t: "withdraw"; proposalId: string }
