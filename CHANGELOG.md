@@ -2,6 +2,18 @@
 
 ## 0.12.0
 
+- **A bare `/help` shows the eight commands you need, not all twenty-two.**
+  Agreeing, disagreeing, talking, stopping, and seeing who is here is the whole
+  job; the feature list answers a question nobody a minute into their first room
+  is asking, and buries the ones they are. `/help all` still shows everything,
+  and names what is in there so nobody concludes there is no rest. Aliases are
+  held back too — four ways to say yes is a kindness once you are using the
+  thing and noise while you are learning what it does.
+- **The invite banner no longer advertises racing.** `mpx share` has one job,
+  which is handing over a link, and every extra line competed with it. Racing,
+  splitting and lanes are in `/help all` and the docs, for the moment there is a
+  reason to want them. The caveat about lanes not seeing uncommitted work now
+  appears when someone actually starts a race, which is when it means anything.
 - **`/split` runs different work in parallel lanes, each landing on its own.**
   `/race` opens several lanes on one prompt and the room takes one of them;
   `/split a | b` opens one lane per prompt and the room can take all of them.

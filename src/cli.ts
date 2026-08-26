@@ -179,6 +179,19 @@ function readTls(p: Parsed): { cert: string; key: string } | null {
   }
 }
 
+/**
+ * What you see after `mpx share`.
+ *
+ * It has one job — hand over the link — and every extra line competes with it.
+ * So this says who is in the room, what is gated, whether it is encrypted, and
+ * then the link.
+ *
+ * Deliberately absent: racing, splitting, lanes, previews. Someone starting
+ * their first room has not asked about any of it, and a banner that recites the
+ * feature list teaches nothing while burying the one line that matters. They
+ * are in `/help all` and in the docs, for the moment there is a reason to want
+ * them.
+ */
 function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServer, warnings: string[]): string[] {
   const s = cfg.server;
   const gatesTools = GATES_TOOLS.includes(s.backend);
@@ -201,14 +214,6 @@ function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServe
     ...(s.pool
       ? [c.yellow("  --pool: seats that join with --runner can take turns on their own account (experimental)")]
       : []),
-    ...(server.canRace
-      ? [
-          c.dim(`  /race tries a prompt ${server.room.laneCount} ways at once, and the room votes on the diff`),
-          ...(server.laneWarning ? [c.yellow(`  ${server.laneWarning}`)] : []),
-        ]
-      : s.lanes
-        ? [c.dim(`  no racing: ${server.laneReason ?? "not a git repository"}`)]
-        : []),
     "",
   ];
 

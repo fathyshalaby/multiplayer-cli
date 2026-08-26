@@ -521,7 +521,7 @@ export class Tui implements Seat {
         this.redraw();
         return;
       case "local":
-        this.local(result.action);
+        this.local(result.action, result.arg);
         return;
     }
   }
@@ -533,10 +533,10 @@ export class Tui implements Seat {
     return (tool ?? open[open.length - 1])?.id ?? this.lastOpenProposal;
   }
 
-  private local(action: string): void {
+  private local(action: string, arg?: string): void {
     switch (action) {
       case "help":
-        this.print("", ...helpLines().map((l) => "  " + c.dim(l)), "");
+        this.print("", ...helpLines(arg === "all").map((l) => "  " + c.dim(l)), "");
         return;
       case "who":
         this.printRoster();

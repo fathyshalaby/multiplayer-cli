@@ -186,18 +186,18 @@ export class FullScreenSeat implements Seat {
         this.say(c.red(`✕ ${result.text}`));
         return;
       case "local":
-        this.local(result.action);
+        this.local(result.action, result.arg);
         return;
       default:
         return;
     }
   }
 
-  private local(action: string): void {
+  private local(action: string, arg?: string): void {
     const v = this.view.snapshot();
     switch (action) {
       case "help":
-        for (const l of helpLines()) this.say(c.dim(l));
+        for (const l of helpLines(arg === "all")) this.say(c.dim(l));
         return;
       case "who":
         this.say(c.dim(`${v.participants.length} in the room`));

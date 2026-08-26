@@ -84,7 +84,8 @@ numbered proposal the room votes on.
 | `/queue` `/who` `/status` | what's pending, who's here, what's going on |
 | `/policy` | show or change the room's rules (host only) |
 | `/me <name>` | change your display name |
-| `/help` | everything |
+| `/split <a> \| <b>` | different work in parallel lanes, each landing on its own |
+| `/help` | the handful you need; `/help all` for the rest |
 
 The same slash commands work in the browser seat.
 
