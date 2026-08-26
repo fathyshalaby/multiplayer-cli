@@ -213,7 +213,7 @@ export class Room extends EventEmitter {
    * each in its own worktree. The room still votes on sending it — racing
    * changes what happens after approval, not who gets to ask.
    */
-  propose(pid: string, text: string, race?: number): Proposal | { error: string } {
+  propose(pid: string, text: string, race?: number, split?: string[]): Proposal | { error: string } {
     const p = this.participants.get(pid);
     if (!p) return { error: "you are not in this room" };
     if (p.role === "observer") return { error: "observers cannot propose" };
@@ -233,7 +233,13 @@ export class Room extends EventEmitter {
       if (!Number.isInteger(race) || race < 2) return { error: "a race needs at least 2 lanes" };
       if (race > MAX_LANES) return { error: `at most ${MAX_LANES} lanes` };
     }
-    return this.create("prompt", pid, p.name, body, gate, undefined, race);
+    if (split !== undefined) {
+      if (!this.laneCount) return { error: "this room cannot split — it is not hosted in a git repository" };
+      if (split.length < 2) return { error: "a split needs at least 2 pieces" };
+      if (split.length > MAX_LANES) return { error: `at most ${MAX_LANES} lanes` };
+      if (split.some((piece) => !piece.trim())) return { error: "every piece of a split needs a prompt" };
+    }
+    return this.create("prompt", pid, p.name, body, gate, undefined, race, undefined, undefined, split);
   }
 
   /**
@@ -244,7 +250,11 @@ export class Room extends EventEmitter {
    * person who started the race on every lane at once.
    */
   proposeLane(lane: LaneInfo): Proposal {
-    const text = `land lane ${lane.id} — ${lane.summary}`;
+    // A split's lanes did different work, so the summary alone ("2 files +31")
+    // does not say which vote this is. A race's did the same work, and naming
+    // the prompt on every lane would just repeat the turn back at the room.
+    const what = lane.prompt ? `${firstLine(lane.prompt).slice(0, 60)} — ` : "";
+    const text = `land lane ${lane.id} — ${what}${lane.summary}`;
     return this.create("lane", "agent", "race", text, this.policy.lane, undefined, undefined, lane.id);
   }
 
@@ -386,6 +396,7 @@ export class Room extends EventEmitter {
     race?: number,
     lane?: string,
     option?: string,
+    split?: string[],
   ): Proposal {
     const prop: Proposal = {
       id: this.counter.next(),
@@ -397,6 +408,7 @@ export class Room extends EventEmitter {
       ...(race ? { race } : {}),
       ...(lane ? { lane } : {}),
       ...(option ? { option } : {}),
+      ...(split ? { split } : {}),
       createdAt: this.now(),
       deadline: gate.autoApproveMs === null ? null : this.now() + gate.autoApproveMs,
       votes: {},
@@ -752,4 +764,8 @@ export class Room extends EventEmitter {
   private emitMsg(msg: ServerMessage): void {
     this.emit("broadcast", msg);
   }
+}
+
+function firstLine(s: string): string {
+  return s.split("\n").find((l) => l.trim())?.trim() ?? s.trim();
 }

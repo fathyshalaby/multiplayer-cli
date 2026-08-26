@@ -8,6 +8,7 @@ import { LocalWsTransport } from "../src/server/transport.js";
 import { Connection } from "../src/client/connection.js";
 import { resolvePreset } from "../src/core/policy.js";
 import { Worktrees, git, inspectRepo, parseShortstat, renderStat } from "../src/core/worktree.js";
+import { probe } from "../src/core/preview.js";
 import { parse } from "../src/client/commands.js";
 import type { LaneInfo, ServerMessage } from "../src/protocol.js";
 import type { AgentBackend, AgentEvents, TurnResult } from "../src/agent/types.js";
@@ -41,7 +42,7 @@ class Editor implements AgentBackend {
   constructor(
     private cwd: string,
     private lane: string,
-    private mode: "write" | "nothing" | "fail" = "write",
+    private mode: "write" | "nothing" | "fail" | "byPrompt" = "write",
   ) {}
 
   async send(prompt: string, events: AgentEvents, signal: AbortSignal): Promise<TurnResult> {
@@ -49,6 +50,13 @@ class Editor implements AgentBackend {
     if (signal.aborted) return { stopReason: "interrupted" };
     if (this.mode === "fail") return { stopReason: "error", error: `lane ${this.lane} blew up` };
     if (this.mode === "nothing") return { stopReason: "end_turn" };
+    if (this.mode === "byPrompt") {
+      // A file named for what this lane was asked, so a split's lanes touch
+      // different files and can honestly land together.
+      const slug = prompt.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "x";
+      await writeFile(join(this.cwd, `${slug}.txt`), `lane ${this.lane}: ${prompt.trim()}\n`);
+      return { stopReason: "end_turn", usage: { output_tokens: 3 } };
+    }
     await writeFile(join(this.cwd, "answer.txt"), `written by lane ${this.lane}\n`);
     return { stopReason: "end_turn", usage: { output_tokens: 3 } };
   }
@@ -226,7 +234,13 @@ interface Seat {
 async function startRoom(
   t: { after(fn: () => unknown): void },
   cwd: string,
-  opts: { lanes?: number; preset?: string; mode?: (lane: string) => "write" | "nothing" | "fail" } = {},
+  opts: {
+    lanes?: number;
+    preset?: string;
+    mode?: (lane: string) => "write" | "nothing" | "fail" | "byPrompt";
+    preview?: string;
+    previewPort?: number;
+  } = {},
 ) {
   const transport = new LocalWsTransport({ host: "127.0.0.1", port: 0, roomName: "lanes" });
   const laneDir = await mkdtemp(join(tmpdir(), "mpx-lanedir-"));
@@ -250,6 +264,8 @@ async function startRoom(
     pool: false,
     lanes: opts.lanes ?? 3,
     laneSetup: null,
+    lanePreview: opts.preview ?? null,
+    lanePreviewPort: opts.previewPort ?? 56_000,
     laneDir,
     transcriptPath: null,
     backendFactory: ({ cwd: laneCwd, lane }) =>
@@ -425,4 +441,267 @@ test("a race is never folded in with someone else's question", async (t) => {
 
   const raceTurn = alice.log.find((m) => m.t === "turnStart") as { prompt: string };
   assert.doesNotMatch(raceTurn.prompt, /docs/);
+});
+
+/**
+ * A preview command shaped like a real one: a shell line that starts a server
+ * reading `$PORT`, serving the lane's own work out of the lane's own checkout.
+ *
+ * It answers with the file the lane wrote, which is what makes the assertion
+ * below meaningful — the room is looking at *that lane's* running copy, not at
+ * a server that merely happens to be up.
+ */
+const PREVIEW_CMD =
+  `node -e "const{createServer}=require('node:http');` +
+  `const{readFileSync}=require('node:fs');` +
+  `createServer((q,s)=>s.end(readFileSync('answer.txt','utf8'))).listen(process.env.PORT,'127.0.0.1')"`;
+
+async function fetchText(url: string): Promise<string> {
+  const res = await fetch(url);
+  return (await res.text()).trim();
+}
+
+/** The latest lanes message that has an opinion about every lane's preview. */
+function previewsOf(log: ServerMessage[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const l of lanesOf(log)) out[l.id] = l.preview?.state ?? "none";
+  return out;
+}
+
+test("each lane comes up on its own port, serving its own work", async (t) => {
+  const root = await scratchRepo(t);
+  const { port } = await startRoom(t, root, { preview: PREVIEW_CMD, previewPort: 57_000 });
+  const alice = await connect(port, "alice");
+  t.after(() => alice.conn.close());
+
+  alice.conn.send({ t: "propose", text: "write the answer", race: 2 });
+  await until(
+    alice.log,
+    (m) => m.t === "lanes" && m.lanes.length === 2 && m.lanes.every((l) => l.preview?.state === "ready"),
+    "both previews to come up",
+    40_000,
+  );
+
+  const lanes = lanesOf(alice.log);
+  const a = lanes.find((l) => l.id === "A")!;
+  const b = lanes.find((l) => l.id === "B")!;
+  assert.notEqual(a.preview!.port, b.preview!.port, "two lanes never share a port");
+
+  // The point of the whole feature: what is running is this lane's version.
+  assert.equal(await fetchText(a.preview!.url!), "written by lane A");
+  assert.equal(await fetchText(b.preview!.url!), "written by lane B");
+});
+
+test("landing a lane stops every preview and frees every port", async (t) => {
+  const root = await scratchRepo(t);
+  const { port } = await startRoom(t, root, { preview: PREVIEW_CMD, previewPort: 58_000 });
+  const alice = await connect(port, "alice");
+  t.after(() => alice.conn.close());
+
+  alice.conn.send({ t: "propose", text: "write the answer", race: 2 });
+  await until(
+    alice.log,
+    (m) => m.t === "lanes" && m.lanes.length === 2 && m.lanes.every((l) => l.preview?.state === "ready"),
+    "both previews to come up",
+    40_000,
+  );
+  const ports = lanesOf(alice.log).map((l) => l.preview!.port!);
+
+  const props = alice.log.filter((m) => m.t === "proposal" && m.proposal.kind === "lane") as {
+    proposal: { id: string; lane?: string };
+  }[];
+  alice.conn.send({ t: "vote", proposalId: props.find((p) => p.proposal.lane === "A")!.proposal.id, vote: "yes" });
+  await until(alice.log, (m) => m.t === "notice" && /lane branches kept/.test(m.text), "the race to end");
+
+  // Nothing is left running: not the lane that lost, and not the one that won.
+  for (const p of ports) assert.equal(await probe(p), false, `port ${p} is still held`);
+  assert.deepEqual(previewsOf(alice.log), { A: "stopped", B: "stopped" });
+
+  // And the checkouts really went away, which a live server in them would have
+  // blocked. This is why previews are stopped before worktrees are removed.
+  const worktrees = await git(root, ["worktree", "list"]);
+  assert.doesNotMatch((worktrees as { value: string }).value, /mpx-lanedir/);
+});
+
+test("a preview that will not start leaves the lane votable on its diff", async (t) => {
+  const root = await scratchRepo(t);
+  const { port } = await startRoom(t, root, { preview: "exit 1", previewPort: 59_000, lanes: 2 });
+  const alice = await connect(port, "alice");
+  t.after(() => alice.conn.close());
+
+  alice.conn.send({ t: "propose", text: "write the answer", race: 2 });
+  await until(
+    alice.log,
+    (m) => m.t === "lanes" && m.lanes.length === 2 && m.lanes.every((l) => l.preview?.state === "failed"),
+    "both previews to give up",
+    40_000,
+  );
+
+  // A dead preview is a shame, not a disqualification.
+  for (const lane of lanesOf(alice.log)) {
+    assert.equal(lane.state, "done", "the lane still finished");
+    assert.match(lane.summary, /1 file/);
+    assert.ok(lane.proposalId, "and the room can still vote on it");
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* splitting: lanes that complement instead of compete                 */
+/* ------------------------------------------------------------------ */
+
+test("/split needs at least two pieces and cuts them on the pipe", () => {
+  assert.deepEqual(parse("/split add the api route | add the settings page", ctx), {
+    kind: "send",
+    msg: {
+      t: "propose",
+      text: "add the api route | add the settings page",
+      split: ["add the api route", "add the settings page"],
+    },
+  });
+
+  // Blank pieces are dropped rather than sent as empty lanes.
+  assert.deepEqual(parse("/split  a  ||  b  |", ctx), {
+    kind: "send",
+    msg: { t: "propose", text: "a | b", split: ["a", "b"] },
+  });
+
+  const one = parse("/split just the one thing", ctx);
+  assert.equal(one.kind, "error");
+  assert.match((one as { text: string }).text, /usage: \/split/);
+
+  const tooMany = parse("/split a|b|c|d|e|f|g", ctx);
+  assert.equal(tooMany.kind, "error");
+  assert.match((tooMany as { text: string }).text, /at most 6 pieces/);
+});
+
+test("a split gives each lane its own prompt, and both can land", async (t) => {
+  const root = await scratchRepo(t);
+  const { port } = await startRoom(t, root, { mode: () => "byPrompt" });
+  const alice = await connect(port, "alice");
+  t.after(() => alice.conn.close());
+
+  alice.conn.send({ t: "propose", text: "api | page", split: ["build the api", "build the page"] });
+  await until(alice.log, (m) => m.t === "turnEnd" && m.stopReason === "lanes", "the lanes to finish");
+
+  const lanes = lanesOf(alice.log);
+  assert.equal(lanes.length, 2);
+  // Each lane was asked something different, and says so.
+  assert.equal(lanes.find((l) => l.id === "A")!.prompt, "build the api");
+  assert.equal(lanes.find((l) => l.id === "B")!.prompt, "build the page");
+
+  const props = alice.log.filter((m) => m.t === "proposal" && m.proposal.kind === "lane") as {
+    proposal: { id: string; lane?: string; text: string };
+  }[];
+  assert.equal(props.length, 2);
+  // The vote says which piece it is: "2 files +3" alone would not.
+  assert.match(props.find((p) => p.proposal.lane === "A")!.proposal.text, /build the api/);
+
+  // Approving A must not withdraw B — that is the whole difference from a race.
+  alice.conn.send({ t: "vote", proposalId: props.find((p) => p.proposal.lane === "A")!.proposal.id, vote: "yes" });
+  await until(alice.log, (m) => m.t === "notice" && /lane A landed/.test(m.text), "A to land");
+  assert.equal(
+    lanesOf(alice.log).find((l) => l.id === "B")!.state,
+    "done",
+    "B is still a live question",
+  );
+  const withdrawn = alice.log.filter((m) => m.t === "resolved" && m.proposal.status === "withdrawn");
+  assert.equal(withdrawn.length, 0, "nothing was withdrawn");
+
+  // And then B lands too, on top of A.
+  alice.conn.send({ t: "vote", proposalId: props.find((p) => p.proposal.lane === "B")!.proposal.id, vote: "yes" });
+  await until(alice.log, (m) => m.t === "notice" && /lane branches kept/.test(m.text), "the split to end");
+
+  assert.equal(await readFile(join(root, "build-the-api.txt"), "utf8"), "lane A: build the api\n");
+  assert.equal(await readFile(join(root, "build-the-page.txt"), "utf8"), "lane B: build the page\n");
+  const left = lanesOf(alice.log);
+  assert.equal(left.find((l) => l.id === "A")!.state, "landed");
+  assert.equal(left.find((l) => l.id === "B")!.state, "landed");
+});
+
+test("a split warns when two lanes claim the same file", async (t) => {
+  const root = await scratchRepo(t);
+  // Both lanes write answer.txt, which is exactly the case worth flagging.
+  const { port } = await startRoom(t, root, { mode: () => "write" });
+  const alice = await connect(port, "alice");
+  t.after(() => alice.conn.close());
+
+  alice.conn.send({ t: "propose", text: "a | b", split: ["do a", "do b"] });
+  const warned = await until(
+    alice.log,
+    (m) => m.t === "notice" && /lanes overlap/.test(m.text),
+    "the overlap warning",
+  );
+  assert.match((warned as { text: string }).text, /answer\.txt \(A, B\)/);
+
+  // A warning, not a veto: both lanes are still on the table.
+  const props = alice.log.filter((m) => m.t === "proposal" && m.proposal.kind === "lane");
+  assert.equal(props.length, 2);
+});
+
+test("a race says nothing about overlap, because its lanes are meant to overlap", async (t) => {
+  const root = await scratchRepo(t);
+  const { port } = await startRoom(t, root);
+  const alice = await connect(port, "alice");
+  t.after(() => alice.conn.close());
+
+  alice.conn.send({ t: "propose", text: "write the answer", race: 2 });
+  await until(alice.log, (m) => m.t === "turnEnd" && m.stopReason === "lanes", "the lanes to finish");
+  assert.equal(
+    alice.log.filter((m) => m.t === "notice" && /lanes overlap/.test(m.text)).length,
+    0,
+    "three tries at one file is not a clash",
+  );
+});
+
+test("a split whose lanes are all voted down lands nothing and still cleans up", async (t) => {
+  const root = await scratchRepo(t);
+  const { port } = await startRoom(t, root, { mode: () => "byPrompt" });
+  const alice = await connect(port, "alice");
+  t.after(() => alice.conn.close());
+
+  alice.conn.send({ t: "propose", text: "a | b", split: ["do a", "do b"] });
+  await until(alice.log, (m) => m.t === "turnEnd" && m.stopReason === "lanes", "the lanes to finish");
+
+  const props = alice.log.filter((m) => m.t === "proposal" && m.proposal.kind === "lane") as {
+    proposal: { id: string; lane?: string };
+  }[];
+  for (const p of props) alice.conn.send({ t: "vote", proposalId: p.proposal.id, vote: "no" });
+
+  await until(alice.log, (m) => m.t === "notice" && /no lane landed/.test(m.text), "the verdict");
+  await until(alice.log, (m) => m.t === "notice" && /lane branches kept/.test(m.text), "the cleanup");
+  for (const lane of lanesOf(alice.log)) assert.equal(lane.state, "discarded");
+  const worktrees = await git(root, ["worktree", "list"]);
+  assert.doesNotMatch((worktrees as { value: string }).value, /mpx-lanedir/);
+});
+
+test("rejecting one piece of a split leaves the other one standing", async (t) => {
+  const root = await scratchRepo(t);
+  const { port } = await startRoom(t, root, { mode: () => "byPrompt" });
+  const alice = await connect(port, "alice");
+  t.after(() => alice.conn.close());
+
+  alice.conn.send({ t: "propose", text: "a | b", split: ["do a", "do b"] });
+  await until(alice.log, (m) => m.t === "turnEnd" && m.stopReason === "lanes", "the lanes to finish");
+
+  const props = alice.log.filter((m) => m.t === "proposal" && m.proposal.kind === "lane") as {
+    proposal: { id: string; lane?: string };
+  }[];
+  alice.conn.send({ t: "vote", proposalId: props.find((p) => p.proposal.lane === "A")!.proposal.id, vote: "no" });
+  await until(
+    alice.log,
+    (m) => m.t === "lanes" && m.lanes.some((l) => l.id === "A" && l.state === "discarded"),
+    "A to be dropped",
+  );
+  assert.equal(lanesOf(alice.log).find((l) => l.id === "B")!.state, "done");
+
+  // The room is not finished until it has decided about B as well.
+  assert.equal(
+    alice.log.filter((m) => m.t === "notice" && /lane branches kept/.test(m.text)).length,
+    0,
+    "the split has not ended yet",
+  );
+
+  alice.conn.send({ t: "vote", proposalId: props.find((p) => p.proposal.lane === "B")!.proposal.id, vote: "yes" });
+  await until(alice.log, (m) => m.t === "notice" && /lane B landed/.test(m.text), "B to land");
+  assert.equal(await readFile(join(root, "do-b.txt"), "utf8"), "lane B: do b\n");
 });

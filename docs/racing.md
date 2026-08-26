@@ -93,6 +93,63 @@ for the price of finding out in parallel.
 Landing is `git merge --no-ff` into the branch the room is hosted on, so
 "we raced three attempts and took B" stays legible in `git log`.
 
+## Looking, not just reading
+
+A diffstat is a fine ballot for a parser and a poor one for a page. `4 files
+changed, +120 −30` does not tell a room whether the layout is right, and asking
+people to vote on it anyway is asking them to guess.
+
+So a lane can be *started* as well as read. Give the room a preview command and
+each finished lane gets its own port and its own running copy:
+
+```
+mpx share --lanes 3 --lane-setup "npm ci" --lane-preview "npm run dev -- --port {port}"
+```
+
+`{port}` is substituted, and `PORT` is set in the environment for the many
+tools that read it instead. Lanes take the next free port from `4173` up
+(`--lane-preview-port`), probed before it is handed out, so two lanes in the
+same race never collide.
+
+```
+  ✓ A  3 files +64 -12
+      http://127.0.0.1:4173
+  ✓ B  2 files +31 -4
+      preview starting…
+  ✓ C  5 files +88 -20
+      preview failed: the preview command exited without listening — Error: Cannot find module 'vite'
+```
+
+The room reads the diff and clicks around the thing, then votes. A preview that
+will not start is reported on its lane and nothing more: the lane is still
+committed, still has a branch, and is still votable on its diff.
+
+Previews are not free, which is why there is no default. Three lanes is three
+dev servers, three `node_modules`, and three of whatever your app opens on
+boot. Turn them on for work with a screen and leave them off for the rest.
+
+### Where the preview is running
+
+On the host's machine, bound wherever the preview command binds it — by default
+that is localhost, reachable by seats on that machine and nobody else. A host
+whose teammates can reach them over the network can bind wider and set
+`--lane-preview-host` to the name those teammates use, and the room will be
+shown a URL that works for them.
+
+There is no tunnel through the relay. That is a deliberate gap rather than an
+oversight: piping a modern dev server through the room's frames means a service
+worker rewriting every asset URL and a hot-reload socket that will not survive
+the trip, and it would be a lot of machinery to arrive somewhere unreliable.
+Seats that cannot reach the host can check out the lane's branch instead — it is
+already there, which is the whole point of leaving them behind.
+
+## When the lanes are not competing
+
+Racing assumes the lanes are **substitutes** — three tries at one thing, of
+which the room takes one. When they are **complements** instead, different work
+meant to land together, approving one should not withdraw the others. That is
+[splitting](./splitting.md): one prompt per lane, and a vote on each.
+
 ## When to ask instead
 
 Racing answers "which approach?" by building all of them. When the fork is

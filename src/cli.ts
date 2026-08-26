@@ -17,6 +17,7 @@ import {
   DEFAULT_PRESET,
 } from "./core/policy.js";
 import { readTranscript } from "./core/transcript.js";
+import { DEFAULT_BASE_PORT, DEFAULT_HOST } from "./core/preview.js";
 import { BACKENDS, BACKEND_HELP, GATES_TOOLS, type BackendName } from "./agent/index.js";
 import { roomName, token as makeToken } from "./util/id.js";
 import { bool, multi, num, parseArgs, str, type Parsed } from "./util/args.js";
@@ -145,6 +146,9 @@ function buildRoomConfig(p: Parsed, easy = false) {
       pool: bool(p, "pool", false),
       lanes: num(p, "lanes", 3),
       laneSetup: str(p, "lane-setup", "") || null,
+      lanePreview: str(p, "lane-preview", "") || null,
+      lanePreviewPort: num(p, "lane-preview-port", DEFAULT_BASE_PORT),
+      lanePreviewHost: str(p, "lane-preview-host", DEFAULT_HOST),
       transcriptPath,
     },
   };
@@ -175,6 +179,19 @@ function readTls(p: Parsed): { cert: string; key: string } | null {
   }
 }
 
+/**
+ * What you see after `mpx share`.
+ *
+ * It has one job — hand over the link — and every extra line competes with it.
+ * So this says who is in the room, what is gated, whether it is encrypted, and
+ * then the link.
+ *
+ * Deliberately absent: racing, splitting, lanes, previews. Someone starting
+ * their first room has not asked about any of it, and a banner that recites the
+ * feature list teaches nothing while burying the one line that matters. They
+ * are in `/help all` and in the docs, for the moment there is a reason to want
+ * them.
+ */
 function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServer, warnings: string[]): string[] {
   const s = cfg.server;
   const gatesTools = GATES_TOOLS.includes(s.backend);
@@ -197,14 +214,6 @@ function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServe
     ...(s.pool
       ? [c.yellow("  --pool: seats that join with --runner can take turns on their own account (experimental)")]
       : []),
-    ...(server.canRace
-      ? [
-          c.dim(`  /race tries a prompt ${server.room.laneCount} ways at once, and the room votes on the diff`),
-          ...(server.laneWarning ? [c.yellow(`  ${server.laneWarning}`)] : []),
-        ]
-      : s.lanes
-        ? [c.dim(`  no racing: ${server.laneReason ?? "not a git repository"}`)]
-        : []),
     "",
   ];
 
@@ -670,12 +679,19 @@ ${c.bold("Pointing at an existing session")}
   --backend-bin <path>   override the binary the backend launches
   --backend-arg <arg>    append a verbatim argument to it; repeatable
 
-${c.bold("Racing")}
-  In a git repository the room can try one prompt several ways at once, each in
-  its own worktree, and then vote on which diff lands.
-  /race [n] <prompt>     run it in n parallel lanes (default: --lanes)
-  --lanes <n>            lanes a bare /race opens; 0 turns racing off (default: 3)
+${c.bold("Lanes")}
+  In a git repository the room can work in several worktrees at once, then vote
+  on what comes back. Two shapes, and the difference is what the lanes are to
+  each other:
+  /race [n] <prompt>     the same prompt n ways — the room lands one of them
+  /split <a> | <b>       different work at once — the room lands each on its own
+  --lanes <n>            lanes a bare /race opens; 0 turns lanes off (default: 3)
   --lane-setup <cmd>     run this in each fresh checkout first, e.g. "npm ci"
+  --lane-preview <cmd>   start each finished lane so the room can look at it,
+                         e.g. "npm run dev -- --port {port}" ({port} and $PORT
+                         are the lane's own)
+  --lane-preview-port <n>  where preview port hunting starts (default: 4173)
+  --lane-preview-host <h>  hostname shown in preview URLs (default: 127.0.0.1)
 
 ${c.bold("Crossroads")}
   The other direction: the agent stops at a fork and asks the room which way,

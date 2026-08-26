@@ -1,0 +1,22 @@
+# What a published extension does not need.
+#
+# vsce packages everything not listed here, which by default meant shipping the
+# TypeScript source, the build config, the integration tests and a 602KB source
+# map — around two thirds of the download, none of it reachable at runtime. The
+# bundle in dist/ is what actually runs.
+
+# Source and build inputs; dist/extension.js is the built artifact.
+src/**
+tsconfig.json
+.vscodeignore
+
+# Tests. They run in CI against a real VS Code, not on a user's machine.
+test/**
+
+# A source map nobody can act on: the bundle is generated, and the sources it
+# points at are not shipped.
+dist/**/*.map
+
+# Editor and tooling noise.
+.gitignore
+**/.DS_Store

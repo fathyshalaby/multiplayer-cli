@@ -1,0 +1,6 @@
+{
+  "name": "multiplayer",
+  "version": "0.12.0",
+  "description": "Share one Gemini CLI session with your team. Everyone sees the same transcript, and nothing is sent to the model until the room agrees.",
+  "contextFileName": "GEMINI.md"
+}

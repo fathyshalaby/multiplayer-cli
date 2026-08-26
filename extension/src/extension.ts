@@ -5,6 +5,7 @@ import { RoomServer } from "../../src/server/server.js";
 import { LocalWsTransport, RelayTransport, type Transport } from "../../src/server/transport.js";
 import { parseJoinTarget } from "../../src/util/url.js";
 import { resolvePreset } from "../../src/core/policy.js";
+import { DEFAULT_BASE_PORT, DEFAULT_HOST } from "../../src/core/preview.js";
 import { detectBackend } from "../../src/util/detect.js";
 import type { BackendName } from "../../src/agent/index.js";
 import { roomName, token as makeToken } from "../../src/util/id.js";
@@ -118,6 +119,9 @@ async function shareFolder(): Promise<void> {
     pool: false,
     lanes: cfg.get<number>("lanes") ?? 3,
     laneSetup: cfg.get<string>("laneSetup") || null,
+    lanePreview: cfg.get<string>("lanePreview") || null,
+    lanePreviewPort: cfg.get<number>("lanePreviewPort") ?? DEFAULT_BASE_PORT,
+    lanePreviewHost: cfg.get<string>("lanePreviewHost") || DEFAULT_HOST,
     transcriptPath: null,
   });
 

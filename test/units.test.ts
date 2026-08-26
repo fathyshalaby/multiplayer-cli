@@ -67,8 +67,53 @@ test("aliases resolve and help documents every command", () => {
   for (const alias of ["/yes", "/ok", "/approve", "/+1"]) {
     assert.equal((parse(alias, ctx) as any).msg.vote, "yes", alias);
   }
-  assert.ok(helpLines().length > 10);
   assert.ok(helpLines().some((l) => l.includes("proposal")));
+});
+
+test("a bare /help shows what you need, not everything there is", () => {
+  const short = helpLines();
+  const all = helpLines(true);
+
+  // The point of the tiering: meeting the room should not mean meeting the
+  // feature list. If this ever inverts, someone has quietly promoted a command.
+  assert.ok(short.length < all.length / 2, `short list is ${short.length} of ${all.length}`);
+
+  for (const feature of ["/race", "/split", "/lanes", "/policy", "/mic", "/ask", "/fork", "/amend"]) {
+    assert.ok(
+      !short.some((l) => l.startsWith(feature)),
+      `${feature} should wait until someone asks for it`,
+    );
+    assert.ok(all.some((l) => l.startsWith(feature)), `${feature} is missing from /help all`);
+  }
+
+  // What is left has to be enough to take part at all.
+  for (const need of ["/y", "/n", "/say", "/stop", "/who", "/queue", "/help", "/quit"]) {
+    assert.ok(short.some((l) => l.startsWith(need + " ") || l.startsWith(need + "\n") || l === need), need);
+  }
+});
+
+test("the short list says where the rest is, and the long one does not repeat itself", () => {
+  // A person who cannot find the rest concludes there is no rest.
+  assert.ok(helpLines().some((l) => l.startsWith("/help all")), "the way out is named");
+  assert.equal(
+    helpLines(true).filter((l) => l.startsWith("/help all")).length,
+    0,
+    "no dangling pointer once you are already looking at everything",
+  );
+});
+
+test("aliases are held back until the long list", () => {
+  // Four ways to say yes is a kindness once you are using the thing and noise
+  // while you are learning what it does.
+  assert.ok(!helpLines().some((l) => l.includes("/approve")));
+  assert.ok(helpLines(true).some((l) => l.includes("/approve")));
+});
+
+test("/help all is what asks for the long list", () => {
+  assert.deepEqual(parse("/help", ctx), { kind: "local", action: "help" });
+  assert.deepEqual(parse("/help all", ctx), { kind: "local", action: "help", arg: "all" });
+  // Anything else after /help is not a request for everything.
+  assert.deepEqual(parse("/help race", ctx), { kind: "local", action: "help" });
 });
 
 test("empty input does nothing at all", () => {

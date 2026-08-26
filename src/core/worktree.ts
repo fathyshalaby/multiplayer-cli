@@ -28,6 +28,14 @@ export interface LaneStat {
   summary: string;
   /** Per-file diffstat, for the seat that wants to look before voting. */
   detail: string;
+  /**
+   * The paths this lane touched.
+   *
+   * Kept apart from `detail` rather than parsed back out of it: a diffstat is
+   * shaped for reading, and it abbreviates long paths and writes renames as
+   * `a => b`. Overlap between lanes is decided on these.
+   */
+  paths: string[];
 }
 
 export interface RepoInfo {
@@ -174,6 +182,7 @@ export class Worktrees {
     const range = `${this.repo.head}..HEAD`;
     const short = await git(lane.dir, ["diff", "--shortstat", range]);
     const detail = await git(lane.dir, ["diff", "--stat", range]);
+    const names = await git(lane.dir, ["diff", "--name-only", range]);
     const counts = parseShortstat(short.ok ? short.value : "");
     return {
       ok: true,
@@ -183,6 +192,7 @@ export class Worktrees {
         ...counts,
         summary: renderStat(counts),
         detail: detail.ok ? detail.value : "",
+        paths: names.ok ? names.value.split("\n").map((l) => l.trim()).filter(Boolean) : [],
       },
     };
   }
@@ -254,7 +264,7 @@ export class Worktrees {
 }
 
 function empty(): LaneStat {
-  return { changed: false, commit: null, files: 0, insertions: 0, deletions: 0, summary: "no changes", detail: "" };
+  return { changed: false, commit: null, files: 0, insertions: 0, deletions: 0, summary: "no changes", detail: "", paths: [] };
 }
 
 /** `3 files changed, 42 insertions(+), 7 deletions(-)` -> numbers. */

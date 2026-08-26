@@ -1,4 +1,5 @@
 import type { ClientMessage } from "../protocol.js";
+import { MAX_LANES } from "../core/room.js";
 
 export interface CommandContext {
   /** Newest open proposal id, used when a vote omits the handle. */
@@ -17,6 +18,15 @@ interface Spec {
   names: string[];
   args: string;
   help: string;
+  /**
+   * Shown by a bare `/help`.
+   *
+   * Everything here is reachable either way — this only decides what a person
+   * meets first. A room's whole job can be done with agree, disagree, talk and
+   * stop; a list of twenty-two commands teaches none of that and hides all of
+   * it. The rest is one `/help all` away, for the moment someone wants it.
+   */
+  essential?: boolean;
   run: (rest: string, ctx: CommandContext) => CommandResult;
 }
 
@@ -25,6 +35,7 @@ const SPECS: Spec[] = [
     names: ["y", "yes", "ok", "approve", "+1"],
     args: "[#id]",
     help: "approve a proposal (defaults to the newest open one)",
+    essential: true,
     run: (rest, ctx) => ({
       kind: "send",
       msg: { t: "vote", proposalId: handle(rest, ctx), vote: "yes" },
@@ -34,6 +45,7 @@ const SPECS: Spec[] = [
     names: ["n", "no", "veto", "-1"],
     args: "[#id] [reason]",
     help: "reject a proposal; with veto enabled this alone stops it",
+    essential: true,
     run: (rest, ctx) => {
       const { id, tail } = splitHandle(rest, ctx);
       return {
@@ -103,6 +115,27 @@ const SPECS: Spec[] = [
     },
   },
   {
+    names: ["split"],
+    args: "<prompt> | <prompt> | ...",
+    help: "run different work in parallel lanes, then vote on each one separately",
+    run: (rest) => {
+      // `|` rather than a repeated flag, because the thing being written is a
+      // list of sentences and people already separate those by hand.
+      const pieces = rest
+        .split("|")
+        .map((piece) => piece.trim())
+        .filter(Boolean);
+      if (pieces.length < 2) {
+        return {
+          kind: "error",
+          text: 'usage: /split <prompt> | <prompt> — e.g. /split add the API route | add the settings page',
+        };
+      }
+      if (pieces.length > MAX_LANES) return { kind: "error", text: `at most ${MAX_LANES} pieces` };
+      return { kind: "send", msg: { t: "propose", text: pieces.join(" | "), split: pieces } };
+    },
+  },
+  {
     names: ["lanes"],
     args: "[n]",
     help: "show the current lanes, or set how many a bare /race opens (host)",
@@ -118,6 +151,7 @@ const SPECS: Spec[] = [
     names: ["say", "chat", "s"],
     args: "<text>",
     help: "talk to the room without involving the model",
+    essential: true,
     run: (rest) =>
       rest.trim()
         ? { kind: "send", msg: { t: "chat", text: rest.trim() } }
@@ -127,6 +161,7 @@ const SPECS: Spec[] = [
     names: ["stop", "interrupt", "esc"],
     args: "",
     help: "interrupt the running turn",
+    essential: true,
     run: () => ({ kind: "send", msg: { t: "interrupt" } }),
   },
   {
@@ -159,13 +194,19 @@ const SPECS: Spec[] = [
       return { kind: "send", msg: { t: "setPolicy", patch: { preset, overrides } } };
     },
   },
-  { names: ["who", "w", "room"], args: "", help: "list who is in the room", run: () => ({ kind: "local", action: "who" }) },
-  { names: ["queue", "q", "open"], args: "", help: "list proposals awaiting a decision", run: () => ({ kind: "local", action: "queue" }) },
+  { names: ["who", "w", "room"], essential: true, args: "", help: "list who is in the room", run: () => ({ kind: "local", action: "who" }) },
+  { names: ["queue", "q", "open"], essential: true, args: "", help: "list proposals awaiting a decision", run: () => ({ kind: "local", action: "queue" }) },
   { names: ["status", "st"], args: "", help: "show the session's current state", run: () => ({ kind: "local", action: "status" }) },
   { names: ["transcript", "log"], args: "", help: "print the transcript path", run: () => ({ kind: "local", action: "transcript" }) },
   { names: ["clear", "cls"], args: "", help: "clear the screen", run: () => ({ kind: "local", action: "clear" }) },
-  { names: ["help", "h", "?"], args: "", help: "show this list", run: () => ({ kind: "local", action: "help" }) },
-  { names: ["quit", "exit", "q!"], args: "", help: "leave the room", run: () => ({ kind: "local", action: "quit" }) },
+  {
+    names: ["help", "h", "?"],
+    essential: true,
+    args: "[all]",
+    help: "show this list",
+    run: (rest) => ({ kind: "local", action: "help", ...(/^all\b/i.test(rest.trim()) ? { arg: "all" } : {}) }),
+  },
+  { names: ["quit", "exit", "q!"], essential: true, args: "", help: "leave the room", run: () => ({ kind: "local", action: "quit" }) },
 ];
 
 /**
@@ -200,15 +241,27 @@ function splitHandle(rest: string, ctx: CommandContext): { id: string; tail: str
   return { id: ctx.defaultProposal(), tail: trimmed };
 }
 
-export function helpLines(): string[] {
+/**
+ * The command list, short by default.
+ *
+ * `/help` is usually typed by someone a minute into their first room who wants
+ * to know what to do next. Twenty-two lines answers a question they did not ask
+ * and buries the four they did.
+ */
+export function helpLines(all = false): string[] {
   const out: string[] = [];
-  for (const s of SPECS) {
+  for (const s of all ? SPECS : SPECS.filter((spec) => spec.essential)) {
     const label = `/${s.names[0]}${s.args ? " " + s.args : ""}`;
-    const aliases = s.names.length > 1 ? `  (${s.names.slice(1).map((n) => "/" + n).join(", ")})` : "";
+    // Aliases only in the long list. Four ways to say yes is a kindness once
+    // you are using the thing and noise while you are learning what it does.
+    const aliases = all && s.names.length > 1 ? `  (${s.names.slice(1).map((n) => "/" + n).join(", ")})` : "";
     out.push(`${label.padEnd(28)} ${s.help}${aliases}`);
   }
   out.push("");
   out.push("Anything that is not a command becomes a proposal the room votes on.");
+  // Named rather than hinted at: a person who cannot find the rest concludes
+  // there is no rest.
+  if (!all) out.push(`${"/help all".padEnd(28)} everything else — racing, splitting, policy, the mic`);
   return out;
 }
 

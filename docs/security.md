@@ -111,3 +111,19 @@ encryption protects the wire, not the disk.
 Open an issue at
 <https://github.com/fathyshalaby/multiplayer-cli/issues>. If it is sensitive,
 say so without the details and the maintainer will find a private channel.
+
+## Proving you belong
+
+Completing the key agreement is not proof. The client's half of the handshake
+is a MAC over its own public key and nonce — nothing in it is chosen by the
+connection it arrives on, so a captured opening frame replays perfectly. The
+replayer cannot go any further: it has no private half, so it can never produce
+a frame that opens under the agreed key.
+
+What it *could* do, if finishing the handshake were enough, is hold a socket
+open indefinitely. Repeat that and a room fills with connections that can never
+say anything, which is a way to keep other people out.
+
+So the clock only stops when a frame arrives that **decrypts**. A real seat
+sends `hello` the moment it has a key, so it is proven in milliseconds; anything
+else is dropped after ten seconds.

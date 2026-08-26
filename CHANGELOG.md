@@ -1,5 +1,110 @@
 # Changelog
 
+## 0.12.0
+
+- **It installs into the agent CLIs, not just beside them.** The repository is
+  now a Claude Code plugin marketplace (`/plugin marketplace add
+  fathyshalaby/multiplayer-cli`) and a Gemini CLI extension
+  (`gemini extensions install …`, which adds `/share` and `/join`). Both are the
+  same skill in different packaging — it is a CLI, so the useful thing is an
+  agent knowing when to reach for it and how to hand over the link without
+  mangling the key in the fragment.
+- **The skill had drifted like everything else.** It named five backends of
+  eleven and knew nothing about racing, splitting, previews or crossroads —
+  including the one feature where the agent is the actor rather than the room.
+  Fixed, and now checked: every backend the CLI has must be named in the skill,
+  and the features must appear *after* the link rather than before it, because
+  an agent reads it top to bottom and repeats what it met first.
+- **One copy, generated.** `scripts/sync-integrations.mjs` makes Gemini's
+  context file from the skill and takes every version from `package.json`;
+  `npm run sync -- --check` runs in CI, so a stale copy fails the build instead
+  of shipping. This is the third time the same number in two files has caused a
+  bug — `mpx --version` lied for two releases, the extension offered seven
+  backends of eleven, and the skill named five.
+- **The browser and editor seats had fallen behind the terminal.** `/split`
+  answered `unknown command` in both, lane previews were not shown at all, and
+  there was no `/help` whatsoever — a browser seat had no way to find out what
+  it could do. All three are fixed, and a preview is a clickable link there
+  rather than a URL to copy, since a browser seat is the one place that can
+  just open the thing being voted on.
+- **The extension offered seven of the eleven backends.** `gemini`, `cursor`,
+  `aider` and `amp` were missing, and its version had drifted to 0.7.0 while
+  the CLI was at 0.12.0. Both are now checked by tests: every backend the CLI
+  has must be offerable from the editor, every policy the editor offers must be
+  a real preset, and the two versions must match. `engines.vscode` is asserted
+  to stay at or below 1.90 so a creeping floor cannot quietly make the
+  extension uninstallable in Cursor, Windsurf and VSCodium.
+- The editor exposes the preview settings too: `multiplayer.lanePreview`,
+  `lanePreviewPort` and `lanePreviewHost`, with defaults asserted to match the
+  CLI's.
+- **A bare `/help` shows the eight commands you need, not all twenty-two.**
+  Agreeing, disagreeing, talking, stopping, and seeing who is here is the whole
+  job; the feature list answers a question nobody a minute into their first room
+  is asking, and buries the ones they are. `/help all` still shows everything,
+  and names what is in there so nobody concludes there is no rest. Aliases are
+  held back too — four ways to say yes is a kindness once you are using the
+  thing and noise while you are learning what it does.
+- **The invite banner no longer advertises racing.** `mpx share` has one job,
+  which is handing over a link, and every extra line competed with it. Racing,
+  splitting and lanes are in `/help all` and the docs, for the moment there is a
+  reason to want them. The caveat about lanes not seeing uncommitted work now
+  appears when someone actually starts a race, which is when it means anything.
+- **`/split` runs different work in parallel lanes, each landing on its own.**
+  `/race` opens several lanes on one prompt and the room takes one of them;
+  `/split a | b` opens one lane per prompt and the room can take all of them.
+  The difference is what the lanes are to each other — a race's are substitutes,
+  a split's are complements, and "which is better, the frontend or the backend"
+  is a malformed question rather than a hard one. Approving one lane of a split
+  withdraws nothing, and the split ends once every lane has been decided.
+  Merges queue rather than run at once, because two `git merge` calls in one
+  checkout is a corrupted index.
+- **A split says when two lanes claimed the same file.** Either two agents did
+  the same work twice, or there is a merge conflict the room has not met yet.
+  It is a warning and never a veto: a route and its test touching one file is
+  normal, and a tool that refuses on a heuristic is one people route around. A
+  race stays quiet, because its lanes are meant to overlap.
+- **Lanes can be looked at, not just read.** `--lane-preview "<cmd>"` starts
+  each finished lane on its own port, so the room votes on the running thing
+  rather than on a diffstat. `{port}` is substituted into the command and
+  `PORT` is set in the environment; ports are probed before they are handed
+  out, so two lanes in the same race never collide. A preview that will not
+  start is reported on its lane and costs it nothing — the diff is still there
+  and the room can still vote on it. Off by default: three lanes is three dev
+  servers, and most work has nothing to look at.
+- Previews are stopped before their worktrees are removed, and stopping one
+  kills the whole process group. `npm run dev` is a shell that spawns a server:
+  killing the shell alone leaves the server running, reparented to init, still
+  holding the port. The group is swept and the sweep waits for the kernel to
+  finish, so the next race can have the port back.
+- A preview can never keep `mpx` from exiting. It is detached and its pipes are
+  unref'd, so even a stray one is the operating system's problem rather than
+  the room's.
+
+## 0.11.3
+
+- **A captured handshake frame could hold a socket open indefinitely.**
+  Finishing the key agreement was treated as proof that a peer belonged, but
+  the client's half is a MAC over its own public key and nonce — nothing in it
+  is chosen by the connection it arrives on, so an opening frame observed on
+  the wire replays perfectly. The replayer can never say anything (it has no
+  private half), but it could keep a connection slot for as long as it liked,
+  and repeat that until a room was full. The clock now stops only when a frame
+  arrives that decrypts, which a real seat produces in milliseconds.
+- **Shutting a room down left unauthenticated sockets attached.** Only seats
+  that had said `hello` were closed, so a connection still handshaking — or
+  refusing to speak — survived `close()` and kept the process alive with it.
+
+## 0.11.2
+
+- **The published extension was two thirds waste.** With no `.vscodeignore`,
+  `vsce` packaged the TypeScript source, the build config, the integration
+  tests and a 602KB source map — none of it reachable at runtime. 231KB and 13
+  files becomes 85KB and 8.
+- CI checks the packaged `.vsix` itself, not just the extension running from
+  source. Activating from source proves the extension works; it says nothing
+  about what gets published, which is how a missing runtime file or a shipped
+  test would reach a user unnoticed.
+
 ## 0.11.1
 
 - **The demo now opens on the product.** It led with the invite banner — six

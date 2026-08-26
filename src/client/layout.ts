@@ -1,6 +1,7 @@
 import type { CrossroadsInfo, LaneInfo } from "../protocol.js";
 import { describeGate } from "../core/policy.js";
 import * as c from "../util/ansi.js";
+import { previewNote } from "./roomView.js";
 import type { LogEntry, ProposalCard, ViewState } from "./roomView.js";
 
 /**
@@ -241,7 +242,15 @@ function laneBlock(l: LaneInfo, cols: number): string[] {
         : l.state === "failed"
           ? (l.error ?? "failed")
           : l.summary;
-  return [c.truncate(`${mark} ${c.bold(l.id)} ${c.dim(what)}`, cols)];
+  const lines = [c.truncate(`${mark} ${c.bold(l.id)} ${c.dim(what)}`, cols)];
+  const note = previewNote(l);
+  // Indented under its lane: the URL belongs to that lane and a flat list of
+  // ports beside a flat list of lanes is a puzzle nobody wants during a vote.
+  if (note) {
+    const paint = l.preview?.state === "ready" ? c.cyan : l.preview?.state === "failed" ? c.red : c.dim;
+    lines.push(c.truncate(`  ${paint(note)}`, cols));
+  }
+  return lines;
 }
 
 function runnerLines(v: ViewState, cols: number): string[] {

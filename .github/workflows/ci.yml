@@ -34,11 +34,17 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # A stale copy fails the build rather than shipping: the skill, the Gemini
+      # context file generated from it, and three version fields must agree.
+      - run: node scripts/sync-integrations.mjs --check
       # Typechecks the extension, bundles it, and proves the bundle loads —
       # the extension test requires it against a stubbed editor API.
       - run: node scripts/build-extension.mjs
       - run: node --test dist/test/extension.test.js
       - run: cd extension && npx vsce package --no-dependencies --out multiplayer-cli.vsix
+      # Activating from source says nothing about what gets published; this
+      # checks the package itself has what it needs and nothing it does not.
+      - run: node scripts/check-vsix.mjs extension/multiplayer-cli.vsix
       - uses: actions/upload-artifact@v5
         with:
           name: multiplayer-cli-vsix

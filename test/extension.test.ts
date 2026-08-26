@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { RoomView } from "../src/client/roomView.js";
 import { panelHtml } from "../src/client/editorPanel.js";
 import type { Participant, Proposal, ServerMessage, Tally } from "../src/protocol.js";
-import { resolvePreset } from "../src/core/policy.js";
+import { resolvePreset, presetNames } from "../src/core/policy.js";
+import { BACKENDS } from "../src/agent/index.js";
+import { DEFAULT_BASE_PORT, DEFAULT_HOST } from "../src/core/preview.js";
+import { readFileSync } from "node:fs";
 
 /**
  * The editor seat's view model. This is where the behaviour worth testing
@@ -285,4 +288,132 @@ test("the browser seat is found however this is packaged", () => {
   const html = sessionPage();
   assert.match(html, /<!doctype html>/i);
   assert.ok(existsSync("extension/dist/session.html") || existsSync("dist/src/client/web/session.html"));
+});
+
+/* ------------------------------------------------------------------ */
+/* the manifest, against the thing it claims to configure              */
+/* ------------------------------------------------------------------ */
+
+const manifest = JSON.parse(
+  readFileSync(new URL("../../extension/package.json", import.meta.url), "utf8"),
+) as {
+  version: string;
+  engines: { vscode: string };
+  contributes: { configuration: { properties: Record<string, { enum?: string[]; default?: unknown }> } };
+};
+
+test("the extension ships the same version as the CLI", () => {
+  // These drifted once already: `mpx --version` reported a stale number for two
+  // releases because it lived in two places. The marketplace showing 0.7 while
+  // the CLI is at 0.12 is the same bug wearing a different hat.
+  const cli = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
+  assert.equal(manifest.version, cli.version);
+});
+
+test("every backend the CLI has is offerable from the editor", () => {
+  const offered = manifest.contributes.configuration.properties["multiplayer.backend"]!.enum!;
+  for (const backend of BACKENDS) {
+    // `anthropic` is deliberately absent: it needs an optional SDK the
+    // extension does not bundle, and the setting's description says so.
+    if (backend === "anthropic") continue;
+    assert.ok(offered.includes(backend), `${backend} is missing from the extension's backend list`);
+  }
+  // And nothing offered that does not exist, which would fail at launch.
+  for (const offer of offered) {
+    if (offer === "") continue;
+    assert.ok((BACKENDS as readonly string[]).includes(offer), `${offer} is offered but is not a backend`);
+  }
+});
+
+test("every policy the editor offers is a real preset", () => {
+  const offered = manifest.contributes.configuration.properties["multiplayer.policy"]!.enum!;
+  for (const name of offered) assert.ok(resolvePreset(name), `${name} is offered but is not a preset`);
+  for (const name of presetNames()) assert.ok(offered.includes(name), `${name} is missing from the editor`);
+});
+
+test("the editor's lane defaults match the CLI's", () => {
+  const props = manifest.contributes.configuration.properties;
+  assert.equal(props["multiplayer.lanePreviewPort"]!.default, DEFAULT_BASE_PORT);
+  assert.equal(props["multiplayer.lanePreviewHost"]!.default, DEFAULT_HOST);
+  // Previews stay off unless someone asks: three lanes is three dev servers.
+  assert.equal(props["multiplayer.lanePreview"]!.default, "");
+});
+
+test("the extension still installs on the VS Code forks", () => {
+  // Cursor, Windsurf and VSCodium track VS Code at a distance. A floor that
+  // creeps up to chase a new API is how an extension quietly stops being
+  // installable in the editors most of its users are actually in.
+  const floor = /^\^?(\d+)\.(\d+)/.exec(manifest.engines.vscode);
+  assert.ok(floor, `unparseable engines.vscode: ${manifest.engines.vscode}`);
+  const [major, minor] = [Number(floor[1]), Number(floor[2])];
+  assert.equal(major, 1);
+  assert.ok(minor <= 90, `engines.vscode ${manifest.engines.vscode} is too new for the forks`);
+});
+
+/* ------------------------------------------------------------------ */
+/* the agent integrations, against the CLI they drive                  */
+/* ------------------------------------------------------------------ */
+
+const repo = (rel: string) => new URL("../../" + rel, import.meta.url);
+const skill = readFileSync(repo("skills/multiplayer/SKILL.md"), "utf8");
+
+test("the skill offers every backend the CLI has", () => {
+  // The third place this drifted. `mpx --version` lied for two releases, the
+  // extension offered seven of eleven, and the skill named five — every one a
+  // copy nobody remembered to update.
+  const line = /\*\*Which AI\.\*\*([\s\S]*?)`mpx backends`/.exec(skill);
+  assert.ok(line, "the skill no longer names the backends where this expects");
+  for (const backend of BACKENDS) {
+    assert.ok(line[1]!.includes(backend), `the skill does not mention the ${backend} backend`);
+  }
+});
+
+test("the skill does not lead with the features", () => {
+  // An agent reads this top to bottom and tells the user what it found first.
+  // Racing and splitting belong in it, but not before the link.
+  const link = skill.indexOf("mpx share");
+  for (const feature of ["/race", "/split", "--lane-preview", "crossroads"]) {
+    const at = skill.indexOf(feature);
+    assert.ok(at > link, `${feature} appears before the user has a room to share`);
+  }
+});
+
+test("the plugin, the extension and the Gemini extension all carry the CLI's version", () => {
+  const cli = JSON.parse(readFileSync(repo("package.json"), "utf8")) as { version: string };
+  for (const rel of [
+    ".claude-plugin/plugin.json",
+    "gemini-extension/gemini-extension.json",
+    "extension/package.json",
+  ]) {
+    const v = (JSON.parse(readFileSync(repo(rel), "utf8")) as { version: string }).version;
+    assert.equal(v, cli.version, `${rel} is at ${v}, the CLI is at ${cli.version}`);
+  }
+});
+
+test("Gemini's context file is the skill, not a copy of it that has drifted", () => {
+  const generated = readFileSync(repo("gemini-extension/GEMINI.md"), "utf8");
+  const bodyOf = (md: string) => {
+    const m = /^---\n[\s\S]*?\n---\n/.exec(md);
+    return (m ? md.slice(m[0].length) : md).trimStart();
+  };
+  assert.ok(generated.includes("Generated from skills/multiplayer/SKILL.md"), "it should say where it came from");
+  assert.ok(generated.endsWith(bodyOf(skill)), "run `npm run sync` — GEMINI.md is behind the skill");
+});
+
+test("the marketplace points at a plugin that is actually here", () => {
+  const market = JSON.parse(readFileSync(repo(".claude-plugin/marketplace.json"), "utf8")) as {
+    name: string;
+    owner: { name: string };
+    plugins: { name: string; source: string }[];
+  };
+  assert.ok(market.name && market.owner?.name && market.plugins.length);
+  const plugin = JSON.parse(readFileSync(repo(".claude-plugin/plugin.json"), "utf8")) as { name: string };
+  // A marketplace naming a plugin the repo does not contain installs nothing
+  // and says nothing useful about why.
+  assert.ok(
+    market.plugins.some((p) => p.name === plugin.name),
+    `marketplace lists ${market.plugins.map((p) => p.name).join(", ")}, the plugin is ${plugin.name}`,
+  );
+  // Skills live at the plugin root, and the plugin root here is the repo.
+  assert.ok(readFileSync(repo("skills/multiplayer/SKILL.md"), "utf8").startsWith("---"));
 });

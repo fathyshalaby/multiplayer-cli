@@ -1,8 +1,7 @@
----
-name: multiplayer
-description: Start a shared multiplayer AI session and get a link to send teammates, using multiplayer-cli (mpx). The group proposes and votes on what gets sent to the model, and it drives whichever coding CLI is installed — Claude Code, Codex, Copilot, OpenCode, Gemini, Cursor, Aider or Amp. Use when the user wants to pair or mob on a session, share their AI session with colleagues, invite someone into what they are working on, get a second pair of eyes before something is sent, set up group review of prompts and tool calls, try one prompt several ways at once and vote on the diffs, or have the agent put a fork to the group instead of guessing.
----
-
+<!--
+  Generated from skills/multiplayer/SKILL.md by scripts/sync-integrations.mjs.
+  Edit the skill, then run `npm run sync`.
+-->
 # Share this session with your team
 
 `multiplayer-cli` turns one AI session into a room several people share. Everyone
