@@ -10,6 +10,8 @@
   "files": [
     "dist/src",
     "skills",
+    ".claude-plugin",
+    "gemini-extension",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
@@ -23,7 +25,8 @@
     "test": "npm run build && node --test --test-concurrency=2 dist/test/*.test.js",
     "start": "npm run build && node dist/src/cli.js",
     "build:extension": "node scripts/build-extension.mjs",
-    "test:vscode": "node extension/test/runTest.mjs"
+    "test:vscode": "node extension/test/runTest.mjs",
+    "sync": "node scripts/sync-integrations.mjs"
   },
   "keywords": [
     "cli",

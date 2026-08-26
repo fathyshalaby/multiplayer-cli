@@ -1,0 +1,14 @@
+{
+  "name": "multiplayer-cli",
+  "owner": {
+    "name": "Fathy Shalaby",
+    "url": "https://github.com/fathyshalaby"
+  },
+  "plugins": [
+    {
+      "name": "multiplayer",
+      "source": ".",
+      "description": "Share one AI session with your team, and gate what reaches the model behind a vote."
+    }
+  ]
+}

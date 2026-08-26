@@ -2,6 +2,25 @@
 
 ## 0.12.0
 
+- **It installs into the agent CLIs, not just beside them.** The repository is
+  now a Claude Code plugin marketplace (`/plugin marketplace add
+  fathyshalaby/multiplayer-cli`) and a Gemini CLI extension
+  (`gemini extensions install …`, which adds `/share` and `/join`). Both are the
+  same skill in different packaging — it is a CLI, so the useful thing is an
+  agent knowing when to reach for it and how to hand over the link without
+  mangling the key in the fragment.
+- **The skill had drifted like everything else.** It named five backends of
+  eleven and knew nothing about racing, splitting, previews or crossroads —
+  including the one feature where the agent is the actor rather than the room.
+  Fixed, and now checked: every backend the CLI has must be named in the skill,
+  and the features must appear *after* the link rather than before it, because
+  an agent reads it top to bottom and repeats what it met first.
+- **One copy, generated.** `scripts/sync-integrations.mjs` makes Gemini's
+  context file from the skill and takes every version from `package.json`;
+  `npm run sync -- --check` runs in CI, so a stale copy fails the build instead
+  of shipping. This is the third time the same number in two files has caused a
+  bug — `mpx --version` lied for two releases, the extension offered seven
+  backends of eleven, and the skill named five.
 - **The browser and editor seats had fallen behind the terminal.** `/split`
   answered `unknown command` in both, lane previews were not shown at all, and
   there was no `/help` whatsoever — a browser seat had no way to find out what

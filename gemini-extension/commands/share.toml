@@ -1,0 +1,22 @@
+description = "Share this session with teammates and print the invite link"
+
+prompt = """
+Start a multiplayer room for this folder using `multiplayer-cli`, then hand the
+user the invite link.
+
+Run `mpx share --backend gemini{{args}}`. If `mpx` is not installed, install it
+first with `npm install -g multiplayer-cli`.
+
+Give the user the link **verbatim**. Do not shorten it, do not rewrite it, and
+do not paste it anywhere yourself — the fragment after `#` is the key to the
+room, and sending it somewhere is giving that person a seat.
+
+Then tell them, briefly:
+- Bare text in the room is a proposal, not a message. `/y` agrees, `/n` vetoes.
+- Nothing reaches the model until the room agrees.
+- Whoever opens the link gets a seat in the browser with nothing to install and
+  no API key. Only the host needs those.
+
+Say nothing about racing, splitting or lanes unless they ask. The room works
+without any of it.
+"""

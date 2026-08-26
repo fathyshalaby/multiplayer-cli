@@ -120,6 +120,7 @@ never goes on the wire. See [Security model](./docs/security.md).
 | [Crossroads](./docs/crossroads.md) | when the agent stops at a fork and asks the room which way |
 | [Account pooling](./docs/pooling.md) | spreading turns across accounts — experimental |
 | [The editor seat](./docs/editor.md) | the VS Code / Cursor extension |
+| [Driving it from an agent](./docs/agents.md) | the Claude Code plugin, the Gemini CLI extension, and anything else |
 | [Protocol](./docs/protocol.md) | the wire format, for building your own client |
 
 ## Commands

@@ -1,0 +1,14 @@
+description = "Take a seat in a teammate's shared session"
+
+prompt = """
+Join the multiplayer session the user was invited to.
+
+Run `mpx join {{args}}` with the link exactly as they were given it — the part
+after `#` is the room key and must survive verbatim. If `mpx` is not installed,
+install it with `npm install -g multiplayer-cli`.
+
+Add `--observer` if they said they only want to watch.
+
+Once in: bare text is a proposal the room votes on, `/y` agrees, `/n <reason>`
+vetoes, `/say` talks to the room without spending a turn.
+"""

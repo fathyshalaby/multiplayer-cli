@@ -349,3 +349,71 @@ test("the extension still installs on the VS Code forks", () => {
   assert.equal(major, 1);
   assert.ok(minor <= 90, `engines.vscode ${manifest.engines.vscode} is too new for the forks`);
 });
+
+/* ------------------------------------------------------------------ */
+/* the agent integrations, against the CLI they drive                  */
+/* ------------------------------------------------------------------ */
+
+const repo = (rel: string) => new URL("../../" + rel, import.meta.url);
+const skill = readFileSync(repo("skills/multiplayer/SKILL.md"), "utf8");
+
+test("the skill offers every backend the CLI has", () => {
+  // The third place this drifted. `mpx --version` lied for two releases, the
+  // extension offered seven of eleven, and the skill named five — every one a
+  // copy nobody remembered to update.
+  const line = /\*\*Which AI\.\*\*([\s\S]*?)`mpx backends`/.exec(skill);
+  assert.ok(line, "the skill no longer names the backends where this expects");
+  for (const backend of BACKENDS) {
+    assert.ok(line[1]!.includes(backend), `the skill does not mention the ${backend} backend`);
+  }
+});
+
+test("the skill does not lead with the features", () => {
+  // An agent reads this top to bottom and tells the user what it found first.
+  // Racing and splitting belong in it, but not before the link.
+  const link = skill.indexOf("mpx share");
+  for (const feature of ["/race", "/split", "--lane-preview", "crossroads"]) {
+    const at = skill.indexOf(feature);
+    assert.ok(at > link, `${feature} appears before the user has a room to share`);
+  }
+});
+
+test("the plugin, the extension and the Gemini extension all carry the CLI's version", () => {
+  const cli = JSON.parse(readFileSync(repo("package.json"), "utf8")) as { version: string };
+  for (const rel of [
+    ".claude-plugin/plugin.json",
+    "gemini-extension/gemini-extension.json",
+    "extension/package.json",
+  ]) {
+    const v = (JSON.parse(readFileSync(repo(rel), "utf8")) as { version: string }).version;
+    assert.equal(v, cli.version, `${rel} is at ${v}, the CLI is at ${cli.version}`);
+  }
+});
+
+test("Gemini's context file is the skill, not a copy of it that has drifted", () => {
+  const generated = readFileSync(repo("gemini-extension/GEMINI.md"), "utf8");
+  const bodyOf = (md: string) => {
+    const m = /^---\n[\s\S]*?\n---\n/.exec(md);
+    return (m ? md.slice(m[0].length) : md).trimStart();
+  };
+  assert.ok(generated.includes("Generated from skills/multiplayer/SKILL.md"), "it should say where it came from");
+  assert.ok(generated.endsWith(bodyOf(skill)), "run `npm run sync` — GEMINI.md is behind the skill");
+});
+
+test("the marketplace points at a plugin that is actually here", () => {
+  const market = JSON.parse(readFileSync(repo(".claude-plugin/marketplace.json"), "utf8")) as {
+    name: string;
+    owner: { name: string };
+    plugins: { name: string; source: string }[];
+  };
+  assert.ok(market.name && market.owner?.name && market.plugins.length);
+  const plugin = JSON.parse(readFileSync(repo(".claude-plugin/plugin.json"), "utf8")) as { name: string };
+  // A marketplace naming a plugin the repo does not contain installs nothing
+  // and says nothing useful about why.
+  assert.ok(
+    market.plugins.some((p) => p.name === plugin.name),
+    `marketplace lists ${market.plugins.map((p) => p.name).join(", ")}, the plugin is ${plugin.name}`,
+  );
+  // Skills live at the plugin root, and the plugin root here is the repo.
+  assert.ok(readFileSync(repo("skills/multiplayer/SKILL.md"), "utf8").startsWith("---"));
+});

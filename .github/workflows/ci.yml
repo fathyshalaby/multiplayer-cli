@@ -34,6 +34,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # A stale copy fails the build rather than shipping: the skill, the Gemini
+      # context file generated from it, and three version fields must agree.
+      - run: node scripts/sync-integrations.mjs --check
       # Typechecks the extension, bundles it, and proves the bundle loads —
       # the extension test requires it against a stubbed editor API.
       - run: node scripts/build-extension.mjs

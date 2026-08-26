@@ -1,0 +1,12 @@
+{
+  "name": "multiplayer",
+  "description": "Share one AI session with your team. Everyone sees the same transcript, and nothing is sent to the model until the room agrees.",
+  "version": "0.12.0",
+  "author": {
+    "name": "Fathy Shalaby",
+    "url": "https://github.com/fathyshalaby"
+  },
+  "homepage": "https://github.com/fathyshalaby/multiplayer-cli",
+  "license": "MIT",
+  "keywords": ["multiplayer", "collaboration", "pair programming", "consent", "voting"]
+}
