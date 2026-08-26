@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { RoomView } from "../src/client/roomView.js";
 import { panelHtml } from "../src/client/editorPanel.js";
 import type { Participant, Proposal, ServerMessage, Tally } from "../src/protocol.js";
-import { resolvePreset } from "../src/core/policy.js";
+import { resolvePreset, presetNames } from "../src/core/policy.js";
+import { BACKENDS } from "../src/agent/index.js";
+import { DEFAULT_BASE_PORT, DEFAULT_HOST } from "../src/core/preview.js";
+import { readFileSync } from "node:fs";
 
 /**
  * The editor seat's view model. This is where the behaviour worth testing
@@ -285,4 +288,64 @@ test("the browser seat is found however this is packaged", () => {
   const html = sessionPage();
   assert.match(html, /<!doctype html>/i);
   assert.ok(existsSync("extension/dist/session.html") || existsSync("dist/src/client/web/session.html"));
+});
+
+/* ------------------------------------------------------------------ */
+/* the manifest, against the thing it claims to configure              */
+/* ------------------------------------------------------------------ */
+
+const manifest = JSON.parse(
+  readFileSync(new URL("../../extension/package.json", import.meta.url), "utf8"),
+) as {
+  version: string;
+  engines: { vscode: string };
+  contributes: { configuration: { properties: Record<string, { enum?: string[]; default?: unknown }> } };
+};
+
+test("the extension ships the same version as the CLI", () => {
+  // These drifted once already: `mpx --version` reported a stale number for two
+  // releases because it lived in two places. The marketplace showing 0.7 while
+  // the CLI is at 0.12 is the same bug wearing a different hat.
+  const cli = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
+  assert.equal(manifest.version, cli.version);
+});
+
+test("every backend the CLI has is offerable from the editor", () => {
+  const offered = manifest.contributes.configuration.properties["multiplayer.backend"]!.enum!;
+  for (const backend of BACKENDS) {
+    // `anthropic` is deliberately absent: it needs an optional SDK the
+    // extension does not bundle, and the setting's description says so.
+    if (backend === "anthropic") continue;
+    assert.ok(offered.includes(backend), `${backend} is missing from the extension's backend list`);
+  }
+  // And nothing offered that does not exist, which would fail at launch.
+  for (const offer of offered) {
+    if (offer === "") continue;
+    assert.ok((BACKENDS as readonly string[]).includes(offer), `${offer} is offered but is not a backend`);
+  }
+});
+
+test("every policy the editor offers is a real preset", () => {
+  const offered = manifest.contributes.configuration.properties["multiplayer.policy"]!.enum!;
+  for (const name of offered) assert.ok(resolvePreset(name), `${name} is offered but is not a preset`);
+  for (const name of presetNames()) assert.ok(offered.includes(name), `${name} is missing from the editor`);
+});
+
+test("the editor's lane defaults match the CLI's", () => {
+  const props = manifest.contributes.configuration.properties;
+  assert.equal(props["multiplayer.lanePreviewPort"]!.default, DEFAULT_BASE_PORT);
+  assert.equal(props["multiplayer.lanePreviewHost"]!.default, DEFAULT_HOST);
+  // Previews stay off unless someone asks: three lanes is three dev servers.
+  assert.equal(props["multiplayer.lanePreview"]!.default, "");
+});
+
+test("the extension still installs on the VS Code forks", () => {
+  // Cursor, Windsurf and VSCodium track VS Code at a distance. A floor that
+  // creeps up to chase a new API is how an extension quietly stops being
+  // installable in the editors most of its users are actually in.
+  const floor = /^\^?(\d+)\.(\d+)/.exec(manifest.engines.vscode);
+  assert.ok(floor, `unparseable engines.vscode: ${manifest.engines.vscode}`);
+  const [major, minor] = [Number(floor[1]), Number(floor[2])];
+  assert.equal(major, 1);
+  assert.ok(minor <= 90, `engines.vscode ${manifest.engines.vscode} is too new for the forks`);
 });

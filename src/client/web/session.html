@@ -499,8 +499,17 @@
           : l.state === "empty" ? "no changes"
           : l.state === "failed" ? (l.error || "failed")
           : l.summary;
+        // The preview is a link here rather than a URL to copy: a browser seat
+        // is the one place that can just open the thing being voted on.
+        const p = l.preview;
+        const preview = !p || p.state === "stopped" ? ""
+          : p.state === "ready" && p.url
+            ? ' <a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.url) + "</a>"
+            : p.state === "starting" ? ' <span class="dim">preview starting…</span>'
+            : ' <span class="bad">preview failed: ' + esc(p.error || "unknown") + "</span>";
+        const asked = l.prompt ? ' <span class="dim">— ' + esc(l.prompt) + "</span>" : "";
         return '<div class="lane">' + mark + " <b>" + esc(l.id) + "</b> " +
-          '<span class="dim">' + esc(what) + "</span></div>";
+          '<span class="dim">' + esc(what) + "</span>" + asked + preview + "</div>";
       })
       .join("");
   }
@@ -589,12 +598,48 @@
       if (parts.length < 3) return line("✕ usage: /ask <question> | <option> | <option>", "bad");
       return send({ t: "ask", question: parts[0], options: parts.slice(1) });
     }
+    if (cmd === "split") {
+      const pieces = rest.split("|").map((s) => s.trim()).filter(Boolean);
+      if (pieces.length < 2) return line("✕ usage: /split <prompt> | <prompt>", "bad");
+      if (pieces.length > 6) return line("✕ at most 6 pieces", "bad");
+      return send({ t: "propose", text: pieces.join(" | "), split: pieces });
+    }
+    if (cmd === "help" || cmd === "h" || cmd === "?") {
+      // Same tiering as the terminal seat: what you need, then where the rest is.
+      for (const l of rest.trim() === "all" ? HELP_ALL : HELP) line(l, "dim");
+      return;
+    }
     if (cmd === "lanes") {
       if (!rest) return line(lanes.length ? lanes.map((l) => l.id + " " + l.state).join("  ") : "no lanes yet", "dim");
       return send({ t: "setLanes", count: Number(rest) });
     }
     line("✕ unknown command /" + cmd, "bad");
   }
+
+  // Deliberately short. Someone a minute into their first room wants to know
+  // what to do next, not what the tool can do.
+  const HELP = [
+    "/y [#id]        approve a proposal (defaults to the newest open one)",
+    "/n [#id]        reject one; with veto enabled this alone stops it",
+    "/say <text>     talk to the room without involving the model",
+    "/stop           interrupt the running turn",
+    "",
+    "Anything that is not a command becomes a proposal the room votes on.",
+    "Close the tab to leave.",
+    "/help all       everything else — racing, splitting, lanes",
+  ];
+  const HELP_ALL = HELP.slice(0, 4).concat([
+    "/abstain [#id]  register that you have seen it and have no view",
+    "/amend [#id] <text>   rewrite a proposal that has not been sent",
+    "/withdraw [#id] take back a proposal you made",
+    "/me <name>      change your display name",
+    "/race [n] <prompt>    try one prompt n ways at once; the room lands one",
+    "/split <a> | <b>      different work at once; the room lands each on its own",
+    "/ask <q> | <a> | <b>  put a fork to the room",
+    "/lanes [n]      what the lanes are doing; with a number, set the default",
+    "",
+    "Anything that is not a command becomes a proposal the room votes on.",
+  ]);
 
   $("send").onclick = submit;
   $("input").addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });

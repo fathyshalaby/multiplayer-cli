@@ -2,7 +2,7 @@
   "name": "multiplayer-cli-vscode",
   "displayName": "multiplayer-cli",
   "description": "Share one AI session with your team. Everyone sees the same transcript, and nothing is sent to the model until the room agrees.",
-  "version": "0.7.0",
+  "version": "0.12.0",
   "license": "MIT",
   "publisher": "fathyshalaby",
   "author": "Fathy Shalaby (https://github.com/fathyshalaby)",
@@ -125,6 +125,10 @@
             "copilot",
             "opencode",
             "opencode-json",
+            "gemini",
+            "cursor",
+            "aider",
+            "amp",
             "echo"
           ],
           "enumDescriptions": [
@@ -134,9 +138,13 @@
             "GitHub Copilot CLI",
             "OpenCode",
             "OpenCode with structured events",
-            "Offline demo backend \u2014 no key, no spend"
+            "Google Gemini CLI",
+            "Cursor's agent CLI",
+            "Aider",
+            "Amp",
+            "Offline demo backend — no key, no spend"
           ],
-          "description": "Which AI runs a session you host. Empty means detect. The API-key `anthropic` backend is CLI-only \u2014 it needs an optional package the extension does not bundle."
+          "description": "Which AI runs a session you host. Empty means detect. The API-key `anthropic` backend is CLI-only — it needs an optional package the extension does not bundle."
         },
         "multiplayer.policy": {
           "type": "string",
@@ -167,6 +175,23 @@
           "type": "string",
           "default": "",
           "description": "Relay to serve through, so teammates need no route to you. Empty binds to your local network."
+        },
+        "multiplayer.lanePreview": {
+          "type": "string",
+          "default": "",
+          "description": "Start each finished lane so the room can look at it rather than only read its diff, e.g. \"npm run dev -- --port {port}\". {port} is substituted and PORT is set in the environment. Empty turns previews off, which is the default — three lanes is three dev servers."
+        },
+        "multiplayer.lanePreviewPort": {
+          "type": "number",
+          "default": 4173,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Where preview port hunting starts. Each lane takes the next free one."
+        },
+        "multiplayer.lanePreviewHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Hostname shown in preview URLs. Localhost is right when the seats are on this machine; set it to the name teammates reach you by if your preview command binds wider."
         }
       }
     }

@@ -2,6 +2,22 @@
 
 ## 0.12.0
 
+- **The browser and editor seats had fallen behind the terminal.** `/split`
+  answered `unknown command` in both, lane previews were not shown at all, and
+  there was no `/help` whatsoever — a browser seat had no way to find out what
+  it could do. All three are fixed, and a preview is a clickable link there
+  rather than a URL to copy, since a browser seat is the one place that can
+  just open the thing being voted on.
+- **The extension offered seven of the eleven backends.** `gemini`, `cursor`,
+  `aider` and `amp` were missing, and its version had drifted to 0.7.0 while
+  the CLI was at 0.12.0. Both are now checked by tests: every backend the CLI
+  has must be offerable from the editor, every policy the editor offers must be
+  a real preset, and the two versions must match. `engines.vscode` is asserted
+  to stay at or below 1.90 so a creeping floor cannot quietly make the
+  extension uninstallable in Cursor, Windsurf and VSCodium.
+- The editor exposes the preview settings too: `multiplayer.lanePreview`,
+  `lanePreviewPort` and `lanePreviewHost`, with defaults asserted to match the
+  CLI's.
 - **A bare `/help` shows the eight commands you need, not all twenty-two.**
   Agreeing, disagreeing, talking, stopping, and seeing who is here is the whole
   job; the feature list answers a question nobody a minute into their first room
