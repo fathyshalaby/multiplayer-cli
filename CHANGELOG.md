@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.12.0
+
+- **Lanes can be looked at, not just read.** `--lane-preview "<cmd>"` starts
+  each finished lane on its own port, so the room votes on the running thing
+  rather than on a diffstat. `{port}` is substituted into the command and
+  `PORT` is set in the environment; ports are probed before they are handed
+  out, so two lanes in the same race never collide. A preview that will not
+  start is reported on its lane and costs it nothing — the diff is still there
+  and the room can still vote on it. Off by default: three lanes is three dev
+  servers, and most work has nothing to look at.
+- Previews are stopped before their worktrees are removed, and stopping one
+  kills the whole process group. `npm run dev` is a shell that spawns a server:
+  killing the shell alone leaves the server running, reparented to init, still
+  holding the port. The group is swept and the sweep waits for the kernel to
+  finish, so the next race can have the port back.
+- A preview can never keep `mpx` from exiting. It is detached and its pipes are
+  unref'd, so even a stray one is the operating system's problem rather than
+  the room's.
+
 ## 0.11.3
 
 - **A captured handshake frame could hold a socket open indefinitely.**

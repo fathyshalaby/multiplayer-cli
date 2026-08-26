@@ -185,6 +185,22 @@ export interface CrossroadsInfo {
 export type LaneState = "running" | "done" | "empty" | "failed" | "landed" | "discarded";
 
 /**
+ * A lane's running copy of the app, when the room has a preview command.
+ *
+ * The point of racing is that "which of these is right" is easier to answer
+ * than "what should we ask for". That holds only while the room can see what it
+ * is choosing between, and for anything with a screen a diffstat is not seeing
+ * it. A preview makes the ballot the running thing.
+ */
+export interface LanePreview {
+  state: "starting" | "ready" | "failed" | "stopped";
+  /** Where to look, once it answers. */
+  url: string | null;
+  port: number | null;
+  error?: string;
+}
+
+/**
  * One attempt at the same prompt, in its own git worktree.
  *
  * Racing is the part the room cannot do by talking: several agents try the
@@ -208,6 +224,16 @@ export interface LaneInfo {
   error?: string;
   /** The proposal the room votes on to land this lane, once it has one. */
   proposalId: string | null;
+  /** Absent when the room has no preview command configured. */
+  preview?: LanePreview;
+  /**
+   * What this lane was asked for, when it differs from its siblings.
+   *
+   * A race leaves this unset: every lane had the same prompt, which the turn
+   * already records. A split sets it, because there the lanes are not attempts
+   * at one thing and the room needs to know which is which.
+   */
+  prompt?: string;
   startedAt: number;
   endedAt: number | null;
 }

@@ -17,6 +17,7 @@ import {
   DEFAULT_PRESET,
 } from "./core/policy.js";
 import { readTranscript } from "./core/transcript.js";
+import { DEFAULT_BASE_PORT, DEFAULT_HOST } from "./core/preview.js";
 import { BACKENDS, BACKEND_HELP, GATES_TOOLS, type BackendName } from "./agent/index.js";
 import { roomName, token as makeToken } from "./util/id.js";
 import { bool, multi, num, parseArgs, str, type Parsed } from "./util/args.js";
@@ -145,6 +146,9 @@ function buildRoomConfig(p: Parsed, easy = false) {
       pool: bool(p, "pool", false),
       lanes: num(p, "lanes", 3),
       laneSetup: str(p, "lane-setup", "") || null,
+      lanePreview: str(p, "lane-preview", "") || null,
+      lanePreviewPort: num(p, "lane-preview-port", DEFAULT_BASE_PORT),
+      lanePreviewHost: str(p, "lane-preview-host", DEFAULT_HOST),
       transcriptPath,
     },
   };
@@ -676,6 +680,11 @@ ${c.bold("Racing")}
   /race [n] <prompt>     run it in n parallel lanes (default: --lanes)
   --lanes <n>            lanes a bare /race opens; 0 turns racing off (default: 3)
   --lane-setup <cmd>     run this in each fresh checkout first, e.g. "npm ci"
+  --lane-preview <cmd>   start each finished lane so the room can look at it,
+                         e.g. "npm run dev -- --port {port}" ({port} and $PORT
+                         are the lane's own)
+  --lane-preview-port <n>  where preview port hunting starts (default: 4173)
+  --lane-preview-host <h>  hostname shown in preview URLs (default: 127.0.0.1)
 
 ${c.bold("Crossroads")}
   The other direction: the agent stops at a fork and asks the room which way,

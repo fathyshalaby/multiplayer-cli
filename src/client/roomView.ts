@@ -22,6 +22,28 @@ import { renderTally } from "../core/gate.js";
  * is also where the bugs would be, and it should not need an editor to test.
  */
 
+/**
+ * How a lane's preview reads in one line, or null when there is nothing to say.
+ *
+ * Uncoloured on purpose: both seats render lanes their own way, and the only
+ * thing worth sharing is the wording. A room that has to ask "wait, is B up
+ * yet?" out loud has lost the advantage of previewing at all.
+ */
+export function previewNote(l: LaneInfo): string | null {
+  const p = l.preview;
+  if (!p) return null;
+  switch (p.state) {
+    case "starting":
+      return "preview starting…";
+    case "ready":
+      return p.url ?? "preview ready";
+    case "failed":
+      return `preview failed: ${p.error ?? "unknown"}`;
+    case "stopped":
+      return null;
+  }
+}
+
 export type EntryKind = "model" | "chat" | "notice" | "turn" | "tool" | "raw";
 
 export interface LogEntry {

@@ -13,6 +13,7 @@ import { deriveAuthKey } from "../core/crypto.js";
 import { SecureChannel } from "../core/secure.js";
 import { RoutedBackend } from "./runners.js";
 import { Race } from "./lanes.js";
+import { DEFAULT_BASE_PORT, DEFAULT_HOST, DEFAULT_READY_MS } from "../core/preview.js";
 import { inspectRepo, type RepoInfo } from "../core/worktree.js";
 
 export interface ServerOptions {
@@ -50,6 +51,25 @@ export interface ServerOptions {
   lanes: number;
   /** Shell command run in each lane's fresh checkout, e.g. `npm ci`. */
   laneSetup: string | null;
+  /**
+   * Shell command that starts a finished lane, e.g. `npm run dev -- --port {port}`.
+   *
+   * Null by default. Most work has nothing to look at, and a room that starts
+   * one dev server per lane whether or not anyone wanted one is a room that
+   * runs out of memory.
+   */
+  lanePreview?: string | null;
+  /** Where preview port hunting starts. Each lane takes the next free one. */
+  lanePreviewPort?: number;
+  /**
+   * The hostname the room is shown in a preview URL.
+   *
+   * Localhost by default, which is right when the seats are on the host's
+   * machine. A host whose teammates can reach it over the network sets this to
+   * the name they reach it by; binding the server that wide is the preview
+   * command's business, not ours.
+   */
+  lanePreviewHost?: string;
   /** Where lane checkouts go. Tests point this at a scratch directory. */
   laneDir?: string;
   /** How long a socket has to prove it belongs. Shortened in tests. */
@@ -559,6 +579,14 @@ export class RoomServer {
       prompt,
       count,
       setup: this.opts.laneSetup,
+      preview: this.opts.lanePreview
+        ? {
+            command: this.opts.lanePreview,
+            basePort: this.opts.lanePreviewPort ?? DEFAULT_BASE_PORT,
+            host: this.opts.lanePreviewHost ?? DEFAULT_HOST,
+            readyMs: DEFAULT_READY_MS,
+          }
+        : null,
       ...(this.opts.laneDir ? { baseDir: this.opts.laneDir } : {}),
       makeBackend: (lane) => this.laneBackend(lane.cwd, lane.id),
       onLaneChange: (lanes) => {

@@ -1,6 +1,7 @@
 import type { LaneInfo } from "../protocol.js";
 import type { AgentBackend, TurnResult } from "../agent/types.js";
 import { Worktrees, type Lane, type RepoInfo } from "../core/worktree.js";
+import { Previews, type PreviewOptions } from "../core/preview.js";
 
 export interface RaceOptions {
   repo: RepoInfo;
@@ -13,6 +14,21 @@ export interface RaceOptions {
   makeBackend(lane: Lane): AgentBackend;
   /** Shell command run in each lane before the agent starts, e.g. `npm ci`. */
   setup?: string | null;
+  /**
+   * Start each finished lane so the room can look at it, not just read it.
+   *
+   * Null when the room has no preview command, which is the default: most work
+   * has nothing to look at, and starting N dev servers is not free.
+   */
+  preview?: PreviewOptions | null;
+  /**
+   * A prompt per lane, keyed by lane id, for a split.
+   *
+   * A race leaves this empty and every lane gets `prompt`. A split fills it,
+   * and lanes then differ in what they were asked rather than only in what
+   * they came back with.
+   */
+  prompts?: Record<string, string>;
   onLaneChange(lanes: LaneInfo[]): void;
   onDelta(laneId: string, kind: "text" | "thinking", text: string): void;
   onToolResult(laneId: string, toolUseId: string, ok: boolean, preview: string): void;
@@ -43,6 +59,9 @@ export class Race {
   private infos = new Map<string, LaneInfo>();
   private lanes = new Map<string, Lane>();
   private backends = new Map<string, AgentBackend>();
+  private previews: Previews | null;
+  /** Preview startups still in flight, so closing can wait for them to settle. */
+  private starting = new Set<Promise<void>>();
   private nowFn: () => number;
   private done = false;
 
@@ -50,6 +69,7 @@ export class Race {
     this.opts = opts;
     this.turnId = opts.turnId;
     this.nowFn = opts.now ?? (() => Date.now());
+    this.previews = opts.preview ? new Previews(opts.preview) : null;
     this.trees = new Worktrees({
       repo: opts.repo,
       roomName: opts.roomName,
@@ -99,6 +119,10 @@ export class Race {
       this.lanes.set(id, added.value);
       info.branch = added.value.branch;
       info.dir = added.value.cwd;
+      // Only when it differs from its siblings: a race's lanes all share the
+      // turn's prompt, and repeating it on each of them says nothing.
+      const own = this.opts.prompts?.[id];
+      if (own !== undefined) info.prompt = own;
     }
     this.publish();
 
@@ -126,7 +150,7 @@ export class Race {
 
     const result = await backend
       .send(
-        this.opts.prompt,
+        this.promptFor(id),
         {
           onText: (text) => text && this.opts.onDelta(id, "text", text),
           onThinking: (text) => text && this.opts.onDelta(id, "thinking", text),
@@ -150,18 +174,18 @@ export class Race {
     if (result.error) {
       // Still commit: an agent that errored halfway may have left useful work,
       // and a lane with a diff is worth showing even if it did not finish.
-      await this.commit(info, lane);
+      await this.commit(info, lane, signal);
       if (info.state === "empty") this.finish(info, "failed", result.error);
       else info.error = result.error;
       this.publish();
       return;
     }
-    await this.commit(info, lane);
+    await this.commit(info, lane, signal);
     this.publish();
   }
 
-  private async commit(info: LaneInfo, lane: Lane): Promise<void> {
-    const message = `lane ${info.id}: ${firstLine(this.opts.prompt).slice(0, 60)}`;
+  private async commit(info: LaneInfo, lane: Lane, signal: AbortSignal): Promise<void> {
+    const message = `lane ${info.id}: ${firstLine(this.promptFor(info.id)).slice(0, 60)}`;
     const stat = await this.trees.commit(lane, message);
     if (!stat.ok) {
       this.finish(info, "failed", stat.error);
@@ -175,6 +199,57 @@ export class Race {
     info.detail = stat.value.detail;
     info.commit = stat.value.commit;
     this.finish(info, "done", undefined);
+    // Deliberately not awaited. A dev server can take a minute to answer, and
+    // the room should be reading diffs and voting during that minute rather
+    // than staring at a blank screen; the preview arrives as an update.
+    this.beginPreview(info, lane, signal);
+  }
+
+  /**
+   * Bring up one lane's preview in the background.
+   *
+   * Failure here is reported on the lane and nowhere else. A preview that will
+   * not start is a shame, not a reason to withdraw an otherwise good diff from
+   * the vote.
+   */
+  private beginPreview(info: LaneInfo, lane: Lane, signal: AbortSignal): void {
+    const previews = this.previews;
+    if (!previews) return;
+    info.preview = { state: "starting", url: null, port: null };
+    this.publish();
+
+    const task = previews
+      .start(info.id, lane.cwd, signal)
+      .then((started) => {
+        // The lane may have been landed, discarded or closed while we waited,
+        // and reviving its preview at that point would leave a stray process.
+        if (!this.infos.has(info.id) || info.preview?.state === "stopped") return;
+        info.preview = started.ok
+          ? { state: "ready", url: started.value.url, port: started.value.port }
+          : { state: "failed", url: null, port: null, error: started.error };
+        this.publish();
+      })
+      .catch((err) => {
+        info.preview = { state: "failed", url: null, port: null, error: (err as Error)?.message ?? String(err) };
+        this.publish();
+      })
+      .finally(() => {
+        this.starting.delete(task);
+      });
+    this.starting.add(task);
+  }
+
+  /** What this lane was asked for: its own prompt in a split, the turn's in a race. */
+  private promptFor(id: string): string {
+    return this.opts.prompts?.[id] ?? this.opts.prompt;
+  }
+
+  /** Stop one lane's preview and say so. */
+  private async stopPreview(id: string): Promise<void> {
+    if (!this.previews) return;
+    await this.previews.stop(id);
+    const info = this.infos.get(id);
+    if (info?.preview) info.preview = { state: "stopped", url: null, port: null };
   }
 
   /** Merge one lane into the host's checkout. */
@@ -190,9 +265,16 @@ export class Race {
   }
 
   markDiscarded(except?: string): void {
+    const dropped: string[] = [];
     for (const info of this.infos.values()) {
-      if (info.id !== except && info.state === "done") info.state = "discarded";
+      if (info.id !== except && info.state === "done") {
+        info.state = "discarded";
+        dropped.push(info.id);
+      }
     }
+    // A discarded lane's preview is a server nobody is going to look at again,
+    // holding a port the next race will want.
+    void Promise.all(dropped.map((id) => this.stopPreview(id))).then(() => this.publish());
     this.publish();
   }
 
@@ -200,6 +282,18 @@ export class Race {
   async close(): Promise<string[]> {
     for (const backend of this.backends.values()) await backend.close().catch(() => {});
     this.backends.clear();
+    // Order matters. Previews run *inside* the checkouts, so they have to be
+    // stopped before the worktrees are removed out from under them — otherwise
+    // a dev server is left running on a directory that no longer exists, still
+    // holding its port. Startups already in flight are settled first for the
+    // same reason: one that lands after this point would spawn into nothing.
+    await Promise.allSettled([...this.starting]);
+    if (this.previews) await this.previews.stopAll();
+    for (const info of this.infos.values()) {
+      if (info.preview && info.preview.state !== "failed") {
+        info.preview = { state: "stopped", url: null, port: null };
+      }
+    }
     return this.trees.close();
   }
 

@@ -13,6 +13,7 @@ import { renderTally } from "../core/gate.js";
 import { describeGate } from "../core/policy.js";
 import * as c from "../util/ansi.js";
 import { Connection } from "./connection.js";
+import { previewNote } from "./roomView.js";
 import { commandNames, helpLines, parse } from "./commands.js";
 import type { Seat, SeatOptions } from "./fullscreen.js";
 
@@ -728,8 +729,16 @@ function laneSummary(l: LaneInfo): string {
     case "discarded":
       return c.dim(`not taken — ${l.summary} · ${l.branch}`);
     default:
-      return `${l.summary}${l.error ? c.dim(`  (finished early: ${l.error})`) : ""}`;
+      return `${l.summary}${l.error ? c.dim(`  (finished early: ${l.error})`) : ""}${previewSuffix(l)}`;
   }
+}
+
+/** The preview, appended to a finished lane's line. */
+function previewSuffix(l: LaneInfo): string {
+  const note = previewNote(l);
+  if (!note) return "";
+  const paint = l.preview?.state === "ready" ? c.cyan : l.preview?.state === "failed" ? c.red : c.dim;
+  return `  ${paint(note)}`;
 }
 
 /** `1.2k` rather than `1234`: the number is a pulse, not a measurement. */

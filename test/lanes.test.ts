@@ -8,6 +8,7 @@ import { LocalWsTransport } from "../src/server/transport.js";
 import { Connection } from "../src/client/connection.js";
 import { resolvePreset } from "../src/core/policy.js";
 import { Worktrees, git, inspectRepo, parseShortstat, renderStat } from "../src/core/worktree.js";
+import { probe } from "../src/core/preview.js";
 import { parse } from "../src/client/commands.js";
 import type { LaneInfo, ServerMessage } from "../src/protocol.js";
 import type { AgentBackend, AgentEvents, TurnResult } from "../src/agent/types.js";
@@ -226,7 +227,13 @@ interface Seat {
 async function startRoom(
   t: { after(fn: () => unknown): void },
   cwd: string,
-  opts: { lanes?: number; preset?: string; mode?: (lane: string) => "write" | "nothing" | "fail" } = {},
+  opts: {
+    lanes?: number;
+    preset?: string;
+    mode?: (lane: string) => "write" | "nothing" | "fail";
+    preview?: string;
+    previewPort?: number;
+  } = {},
 ) {
   const transport = new LocalWsTransport({ host: "127.0.0.1", port: 0, roomName: "lanes" });
   const laneDir = await mkdtemp(join(tmpdir(), "mpx-lanedir-"));
@@ -250,6 +257,8 @@ async function startRoom(
     pool: false,
     lanes: opts.lanes ?? 3,
     laneSetup: null,
+    lanePreview: opts.preview ?? null,
+    lanePreviewPort: opts.previewPort ?? 56_000,
     laneDir,
     transcriptPath: null,
     backendFactory: ({ cwd: laneCwd, lane }) =>
@@ -425,4 +434,106 @@ test("a race is never folded in with someone else's question", async (t) => {
 
   const raceTurn = alice.log.find((m) => m.t === "turnStart") as { prompt: string };
   assert.doesNotMatch(raceTurn.prompt, /docs/);
+});
+
+/**
+ * A preview command shaped like a real one: a shell line that starts a server
+ * reading `$PORT`, serving the lane's own work out of the lane's own checkout.
+ *
+ * It answers with the file the lane wrote, which is what makes the assertion
+ * below meaningful — the room is looking at *that lane's* running copy, not at
+ * a server that merely happens to be up.
+ */
+const PREVIEW_CMD =
+  `node -e "const{createServer}=require('node:http');` +
+  `const{readFileSync}=require('node:fs');` +
+  `createServer((q,s)=>s.end(readFileSync('answer.txt','utf8'))).listen(process.env.PORT,'127.0.0.1')"`;
+
+async function fetchText(url: string): Promise<string> {
+  const res = await fetch(url);
+  return (await res.text()).trim();
+}
+
+/** The latest lanes message that has an opinion about every lane's preview. */
+function previewsOf(log: ServerMessage[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const l of lanesOf(log)) out[l.id] = l.preview?.state ?? "none";
+  return out;
+}
+
+test("each lane comes up on its own port, serving its own work", async (t) => {
+  const root = await scratchRepo(t);
+  const { port } = await startRoom(t, root, { preview: PREVIEW_CMD, previewPort: 57_000 });
+  const alice = await connect(port, "alice");
+  t.after(() => alice.conn.close());
+
+  alice.conn.send({ t: "propose", text: "write the answer", race: 2 });
+  await until(
+    alice.log,
+    (m) => m.t === "lanes" && m.lanes.length === 2 && m.lanes.every((l) => l.preview?.state === "ready"),
+    "both previews to come up",
+    40_000,
+  );
+
+  const lanes = lanesOf(alice.log);
+  const a = lanes.find((l) => l.id === "A")!;
+  const b = lanes.find((l) => l.id === "B")!;
+  assert.notEqual(a.preview!.port, b.preview!.port, "two lanes never share a port");
+
+  // The point of the whole feature: what is running is this lane's version.
+  assert.equal(await fetchText(a.preview!.url!), "written by lane A");
+  assert.equal(await fetchText(b.preview!.url!), "written by lane B");
+});
+
+test("landing a lane stops every preview and frees every port", async (t) => {
+  const root = await scratchRepo(t);
+  const { port } = await startRoom(t, root, { preview: PREVIEW_CMD, previewPort: 58_000 });
+  const alice = await connect(port, "alice");
+  t.after(() => alice.conn.close());
+
+  alice.conn.send({ t: "propose", text: "write the answer", race: 2 });
+  await until(
+    alice.log,
+    (m) => m.t === "lanes" && m.lanes.length === 2 && m.lanes.every((l) => l.preview?.state === "ready"),
+    "both previews to come up",
+    40_000,
+  );
+  const ports = lanesOf(alice.log).map((l) => l.preview!.port!);
+
+  const props = alice.log.filter((m) => m.t === "proposal" && m.proposal.kind === "lane") as {
+    proposal: { id: string; lane?: string };
+  }[];
+  alice.conn.send({ t: "vote", proposalId: props.find((p) => p.proposal.lane === "A")!.proposal.id, vote: "yes" });
+  await until(alice.log, (m) => m.t === "notice" && /lane branches kept/.test(m.text), "the race to end");
+
+  // Nothing is left running: not the lane that lost, and not the one that won.
+  for (const p of ports) assert.equal(await probe(p), false, `port ${p} is still held`);
+  assert.deepEqual(previewsOf(alice.log), { A: "stopped", B: "stopped" });
+
+  // And the checkouts really went away, which a live server in them would have
+  // blocked. This is why previews are stopped before worktrees are removed.
+  const worktrees = await git(root, ["worktree", "list"]);
+  assert.doesNotMatch((worktrees as { value: string }).value, /mpx-lanedir/);
+});
+
+test("a preview that will not start leaves the lane votable on its diff", async (t) => {
+  const root = await scratchRepo(t);
+  const { port } = await startRoom(t, root, { preview: "exit 1", previewPort: 59_000, lanes: 2 });
+  const alice = await connect(port, "alice");
+  t.after(() => alice.conn.close());
+
+  alice.conn.send({ t: "propose", text: "write the answer", race: 2 });
+  await until(
+    alice.log,
+    (m) => m.t === "lanes" && m.lanes.length === 2 && m.lanes.every((l) => l.preview?.state === "failed"),
+    "both previews to give up",
+    40_000,
+  );
+
+  // A dead preview is a shame, not a disqualification.
+  for (const lane of lanesOf(alice.log)) {
+    assert.equal(lane.state, "done", "the lane still finished");
+    assert.match(lane.summary, /1 file/);
+    assert.ok(lane.proposalId, "and the room can still vote on it");
+  }
 });
