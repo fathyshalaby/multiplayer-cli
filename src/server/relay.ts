@@ -5,6 +5,13 @@ import { PROTOCOL_VERSION } from "../protocol.js";
 import { id } from "../util/id.js";
 import { serveWeb } from "./web.js";
 
+/**
+ * Generous for a room, small for an attacker: 8 MiB is more than a hundred
+ * times the largest frame a real session produces, and a twelfth of what `ws`
+ * allows by default.
+ */
+export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
+
 export interface RelayOptions {
   host: string;
   port: number;
@@ -16,6 +23,18 @@ export interface RelayOptions {
   maxPeersPerRoom: number;
   /** Join attempts allowed per room per minute. */
   joinsPerMinute: number;
+  /**
+   * Largest frame the relay will accept, in bytes.
+   *
+   * `ws` defaults to 100 MiB, which is four orders of magnitude more than a
+   * room frame — sealed JSON, a few kilobytes, a few hundred at the very worst
+   * for a snapshot of a long session. At the default limits a relay accepts 64
+   * rooms of 32 seats, and every one of those sockets could hand it 100 MiB
+   * that it buffers and then stringifies to forward. The docs suggest running
+   * one of these on a small VPS for other people; it should not be possible to
+   * exhaust that by connecting to it and talking.
+   */
+  maxFrameBytes?: number;
   /**
    * Publish the names of hosted rooms at `GET /rooms`.
    *
@@ -103,7 +122,10 @@ export class Relay {
       : createServer(handler);
     this.secure = Boolean(opts.tls);
 
-    this.wss = new WebSocketServer({ server: this.http });
+    this.wss = new WebSocketServer({
+      server: this.http,
+      maxPayload: this.opts.maxFrameBytes ?? MAX_FRAME_BYTES,
+    });
     this.wss.on("connection", (ws, req) => this.route(ws, req));
   }
 

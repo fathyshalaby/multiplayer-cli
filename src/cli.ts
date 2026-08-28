@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { RoomServer } from "./server/server.js";
 import { LocalWsTransport, RelayTransport, type Transport } from "./server/transport.js";
-import { Relay } from "./server/relay.js";
+import { Relay, MAX_FRAME_BYTES } from "./server/relay.js";
 import { Connection } from "./client/connection.js";
 import { Tui } from "./client/tui.js";
 import { FullScreenSeat, canFullScreen, type Seat, type SeatOptions } from "./client/fullscreen.js";
@@ -439,6 +439,7 @@ async function cmdRelay(p: Parsed): Promise<void> {
     maxRooms: num(p, "max-rooms", 64),
     maxPeersPerRoom: num(p, "max-peers", 32),
     joinsPerMinute: num(p, "joins-per-minute", 60),
+    maxFrameBytes: num(p, "max-frame", MAX_FRAME_BYTES),
     directory: bool(p, "directory", false),
     ...(bool(p, "quiet", false)
       ? {}
@@ -655,6 +656,8 @@ ${c.bold("multiplayer-cli")} — make your AI session multiplayer
   mpx relay [--port n]         run a relay, so hosts need no open port
                                --tls-cert/--tls-key to serve wss:// directly
                                --directory to publish the names it hosts
+                               --max-rooms/--max-peers/--joins-per-minute/--max-frame
+                               bound what one caller can take from it
   mpx rooms [relay-url]        what is running on a relay (names only)
   mpx serve [options]          run a room with no seat of your own
   mpx transcript <file>        replay a session's audit log

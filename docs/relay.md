@@ -103,7 +103,9 @@ ENTRYPOINT ["mpx", "relay", "--port", "7788", "--host", "0.0.0.0"]
 The relay holds no state worth backing up: rooms live only as long as their
 hosts are connected.
 
-It enforces `--max-rooms`, `--max-peers` per room, and `--joins-per-minute`.
+It enforces `--max-rooms`, `--max-peers` per room, `--joins-per-minute`, and
+`--max-frame` (8 MiB, against a room frame measured in kilobytes — the
+underlying library would otherwise accept 100 MiB from anyone who connects).
 Since it cannot authenticate a joiner, it rate-limits what it cannot check and
 lets the host reject the rest; a socket that connects and says nothing is
 dropped after ten seconds.

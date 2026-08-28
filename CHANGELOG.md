@@ -4,6 +4,16 @@
 
 ### Security
 
+- **The relay accepted a 100 MiB frame from anyone who could connect.** Neither
+  WebSocket server set `maxPayload`, so both took the library default — four
+  orders of magnitude more than a room frame, which is sealed JSON measured in
+  kilobytes. The relay buffers each frame and stringifies it to forward, and at
+  the default limits it accepts 64 rooms of 32 seats, so the memory a stranger
+  could make it spend was bounded only by how many sockets they opened. It is
+  the one component the docs suggest running on a small box for other people.
+  Both the relay and a direct room's listener now cap frames at 8 MiB, and the
+  relay takes `--max-frame` alongside its other limits.
+
 - **The tool gate did not follow a turn onto a pooled runner.** On `anthropic`
   and `echo` the room votes on the model's tool calls, because those are the
   two backends where mpx owns the agent loop. A runner runs that loop on its
