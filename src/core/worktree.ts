@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
-import { mkdir, rm, rmdir } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 /**
  * One parallel attempt: a git branch, its own checkout, and the directory the
@@ -128,14 +129,36 @@ export class Worktrees {
   constructor(opts: WorktreesOptions) {
     this.repo = opts.repo;
     this.slug = `${slugify(opts.roomName)}/${opts.tag}`;
-    this.base = opts.baseDir ?? join(tmpdir(), "mpx-lanes", slugify(opts.roomName), opts.tag);
+    /**
+     * Unpredictable, and with no shared parent for anyone to get to first.
+     *
+     * This used to be `/tmp/mpx-lanes/<room>/<turn>`. The turn id is random,
+     * but that does not help when the directories above it are not: anybody
+     * else on the machine could create `/tmp/mpx-lanes` as a symlink to
+     * somewhere they own, and every lane every room ever checked out would
+     * land inside it. `mkdir -p` follows the link without complaint, and it
+     * only has to be won once.
+     *
+     * A lane checkout is the whole repository, so that is a copy of the source
+     * handed over — and worse than that, it is writable. A lane is committed
+     * from its checkout and the diff the room votes on is generated from the
+     * same place, so someone who can write there chooses what the room is
+     * shown *and* what lands when it approves. `git merge --no-ff` then puts it
+     * in the real repository.
+     *
+     * A random component in a directory only we create, at 0700, removes both
+     * the guessing and the shared parent.
+     */
+    this.base =
+      opts.baseDir ??
+      join(tmpdir(), `mpx-lanes-${slugify(opts.roomName)}-${opts.tag}-${randomBytes(6).toString("hex")}`);
   }
 
   /** Add one lane. Ids are short so `/race` output stays readable: A, B, C. */
   async add(id: string): Promise<Fallible<Lane>> {
     const branch = `mpx/${this.slug}/${id.toLowerCase()}`;
     const dir = join(this.base, id.toLowerCase());
-    await mkdir(this.base, { recursive: true });
+    await mkdir(this.base, { recursive: true, mode: 0o700 });
     const added = await git(this.repo.root, ["worktree", "add", "-b", branch, dir, this.repo.head]);
     if (!added.ok) return { ok: false, error: added.error };
     const lane: Lane = { id, branch, dir, cwd: this.repo.prefix ? join(dir, this.repo.prefix) : dir };
@@ -239,9 +262,8 @@ export class Worktrees {
     }
     await git(this.repo.root, ["worktree", "prune"]);
     await rm(this.base, { recursive: true, force: true }).catch(() => {});
-    // Leave no empty scaffolding behind in the temp directory. Another race in
-    // the same room still holds its own subdirectory, so this fails harmlessly.
-    await rmdir(dirname(this.base)).catch(() => {});
+    // No scaffolding to tidy any more: each race owns one directory directly
+    // under the temp dir rather than sharing a tree with every other room.
     this.lanes.clear();
     return kept;
   }

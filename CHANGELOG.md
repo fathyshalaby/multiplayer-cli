@@ -27,6 +27,24 @@
 
 ### Security
 
+- **Lane checkouts sat at a path anyone on the machine could claim first.** A
+  race put its worktrees in `/tmp/mpx-lanes/<room>/<turn>`. The turn id is
+  random, but the directories above it were not: another account could create
+  `/tmp/mpx-lanes` as a symlink to somewhere it owned, and every lane of every
+  room would be checked out inside it. `mkdir -p` follows a symlink without
+  complaint, and it only has to be won once.
+
+  A lane checkout is the whole repository, so that is a copy of the source
+  handed over — and it is writable. A lane commits from its checkout and the
+  diff the room votes on is rendered from the same place, so whoever can write
+  there chooses both what the room is shown and what lands when it approves,
+  which `git merge --no-ff` then puts into the real repository. Demonstrated
+  with a planted symlink before the fix and again after.
+
+  Each race now owns one directory directly under the temp directory, named
+  with a random component and created `0700`. There is no shared parent left to
+  claim.
+
 - **The relay accepted a 100 MiB frame from anyone who could connect.** Neither
   WebSocket server set `maxPayload`, so both took the library default — four
   orders of magnitude more than a room frame, which is sealed JSON measured in

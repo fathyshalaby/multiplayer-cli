@@ -7,7 +7,7 @@ import { RoomServer } from "../src/server/server.js";
 import { LocalWsTransport } from "../src/server/transport.js";
 import { Connection } from "../src/client/connection.js";
 import { resolvePreset } from "../src/core/policy.js";
-import { Worktrees, git, inspectRepo, parseShortstat, renderStat } from "../src/core/worktree.js";
+import { Worktrees, git, inspectRepo, parseShortstat, renderStat, type RepoInfo } from "../src/core/worktree.js";
 import { probe } from "../src/core/preview.js";
 import { parse } from "../src/client/commands.js";
 import type { LaneInfo, ServerMessage } from "../src/protocol.js";
@@ -704,4 +704,56 @@ test("rejecting one piece of a split leaves the other one standing", async (t) =
   alice.conn.send({ t: "vote", proposalId: props.find((p) => p.proposal.lane === "B")!.proposal.id, vote: "yes" });
   await until(alice.log, (m) => m.t === "notice" && /lane B landed/.test(m.text), "B to land");
   assert.equal(await readFile(join(root, "do-b.txt"), "utf8"), "lane B: do b\n");
+});
+
+
+/* ---- where a lane checkout lives --------------------------------- */
+
+/**
+ * Lane checkouts used to go to `/tmp/mpx-lanes/<room>/<turn>`. The turn id is
+ * random; the directories above it were not, so anyone else on the machine
+ * could create `/tmp/mpx-lanes` as a symlink to somewhere they own and collect
+ * every lane every room checked out. `mkdir -p` follows it without complaint,
+ * and it only has to be won once.
+ *
+ * A lane checkout is the whole repository, and it is writable: the lane commits
+ * from it and the diff the room votes on is rendered from it, so whoever can
+ * write there picks both what the room sees and what `git merge --no-ff` lands.
+ */
+test("a lane checkout does not sit under a path anyone could have claimed first", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "mpx-where-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await git(dir, ["init", "-q"]);
+  await git(dir, ["config", "user.email", "t@example.com"]);
+  await git(dir, ["config", "user.name", "t"]);
+  await writeFile(join(dir, "app.txt"), "source\n");
+  await git(dir, ["add", "-A"]);
+  await git(dir, ["commit", "-qm", "init"]);
+
+  const repo = await inspectRepo(dir);
+  assert.equal(repo.ok, true);
+  const info = (repo as unknown as { value: RepoInfo }).value;
+  const wt = new Worktrees({ repo: info, roomName: "amber-ridge-04", tag: "turn_8fQ2" });
+  t.after(() => rm(wt.base, { recursive: true, force: true }));
+
+  assert.ok(
+    !wt.base.startsWith(join(tmpdir(), "mpx-lanes") + "/"),
+    `no shared parent for someone to plant: ${wt.base}`,
+  );
+  // Guessable from the room name and turn id alone is the whole problem, so the
+  // path must carry something that is neither.
+  assert.ok(
+    !wt.base.endsWith("turn_8fQ2"),
+    `the path must not be derivable from what the room already publishes: ${wt.base}`,
+  );
+
+  const lane = await wt.add("A");
+  assert.equal(lane.ok, true, "an ordinary lane must still check out");
+
+  const { statSync } = await import("node:fs");
+  assert.equal(
+    statSync(wt.base).mode & 0o777,
+    0o700,
+    "and the directory holding a copy of the repository is the owner's business",
+  );
 });

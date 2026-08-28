@@ -114,7 +114,9 @@ on the host's disk. It is an audit log by design; treat it as one. The encryptio
 protects the wire, not the disk.
 
 The file is created `0600` and its directory `0700`, so it is readable by the
-account that hosted the room and not by everyone else on the machine. Before the
+account that hosted the room and not by everyone else on the machine. A
+[race](./racing.md)'s lane checkouts get the same treatment: each race owns one
+directory under the temp directory, created `0700` with an unguessable name. Before the
 unreleased version it was written at the umask default, which on most systems is
 world-readable — if you have old transcripts on a shared machine, `chmod 600`
 them.
@@ -139,8 +141,9 @@ something not to say in a room.
   other people's machines, where the agent loop runs and approves its own tool
   calls. Off by default, opt-in on both sides, and announced when it applies.
 - **No protection from other accounts on your own machine.** The transcript is
-  owner-only now, but a link passed on the command line is visible in `ps`, and
-  anything the room writes into the repository is written as you.
+  owner-only now, and a lane's checkout is created private and unguessable, but
+  a link passed on the command line is visible in `ps`, and anything the room
+  writes into the repository is written as you.
 - **Not audited.** Standard constructions used in a straightforward way
   (HKDF-SHA256, ECDH P-256, HMAC-SHA256, AES-256-GCM), but no third party has
   reviewed this.
