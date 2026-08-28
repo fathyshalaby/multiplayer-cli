@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **The invite screen rendered the empty room underneath itself.** `header` sets
+  `display: flex`, which beats the browser's own `[hidden] { display: none }`, so
+  the room chrome showed through the invite complete with a placeholder dash —
+  on the first thing every invited person sees.
+- **The invite screen did not fit a phone.** `.gate` is a flex item, and the
+  `auto` side margins centring it also cancel the default cross-axis stretch, so
+  it took its 620px max-width whatever the viewport was and a 390px screen lost
+  the right-hand third of every line. Most invites are opened on a phone, since
+  the link was pasted into chat. Both are now regression-tested, and both tests
+  were confirmed to fail with the fix removed.
+- **A room that cannot offer a browser seat now says so before you commit.** On a
+  LAN address over plain http there is no secure context, so the browser never
+  exposes the encryption a room needs — but the check ran inside the join
+  handler, so you typed your name, pressed the button, and only then were told.
+  It runs on load now: the button is disabled, the heading stops promising a
+  seat, and the terminal command below it is the one path that works.
+
 - **A guide for the people who did not start the session.** Every page was
   written for the host, but most people in a room are the ones who were sent a
   link — and plenty of them are not programmers.

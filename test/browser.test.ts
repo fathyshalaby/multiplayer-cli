@@ -185,6 +185,28 @@ test("clicking the shared link gets you a working seat", async (t) => {
   );
   assert.ok(!cmd.includes("?t="), "never as a query parameter");
 
+  // The invite screen is the whole page: the room chrome underneath it is
+  // `hidden`, and `header`'s `display: flex` used to beat that, so an empty
+  // room header rendered under the invite with a placeholder dash in it.
+  // Passed as a string: this file is compiled without the DOM lib, so an arrow
+  // body referencing `document` would be typechecked against Node's globals.
+  assert.equal(
+    await page.evaluate(`getComputedStyle(document.getElementById("chrome")).display`),
+    "none",
+    "the room chrome must not show through the invite screen",
+  );
+
+  // Most invites are opened on a phone, because the link was pasted into chat.
+  await page.setViewportSize({ width: 390, height: 780 });
+  const overflow = (await page.evaluate(
+    `({ doc: document.documentElement.scrollWidth, view: document.documentElement.clientWidth })`,
+  )) as { doc: number; view: number };
+  assert.ok(
+    overflow.doc <= overflow.view,
+    `the invite must fit a phone without sideways scroll (${overflow.doc} > ${overflow.view})`,
+  );
+  await page.setViewportSize({ width: 1100, height: 700 });
+
   // And offers a seat right there.
   await page.fill("#gate-name", "dana");
   await page.click("#enter");
