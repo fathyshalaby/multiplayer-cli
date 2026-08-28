@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **A guide for the people who did not start the session.** Every page was
+  written for the host, but most people in a room are the ones who were sent a
+  link — and plenty of them are not programmers.
+  [Someone sent you a link](./docs/joining.md) assumes nothing technical: what
+  this is, click the link, type your name, what the buttons do, and the
+  questions people actually ask — does it cost me anything, can I break
+  something, can everyone see what I type.
+- **The join page led with a shell command.** Anyone opening an invite met "in
+  your terminal — the full experience" first, and the button they could actually
+  use second. For the non-technical half of a room that is asking them to scroll
+  past something they cannot use. The browser seat is now the headline and the
+  terminal command is the alternative.
+- The docs index, the README and the landing page all open by asking who you
+  are and pointing invited people somewhere that assumes nothing.
+
 - **The install command did not work.** `npm install -g multiplayer-cli` was the
   first line of the README, of getting-started, of the skill, of both Gemini
   commands — and of the join command the browser seat tells a teammate to copy.

@@ -1,11 +1,23 @@
 # Documentation
 
-`multiplayer-cli` lets several people share one AI coding session. You run the
-session on your machine; everyone else joins with a link and votes on what gets
-sent to the model.
+## Which are you?
 
-**New here? Read [Getting started](./getting-started.md).** It takes about five
-minutes and covers everything most rooms ever need.
+| | |
+|---|---|
+| **Somebody sent me a link** | → **[Start here](./joining.md)** — no technical knowledge needed, nothing to install |
+| **I want to run a session** | → [Getting started](./getting-started.md) — about five minutes |
+| **I'm looking for a specific setting** | → the reading path below |
+
+## What this is, in plain English
+
+One person opens an AI assistant on their computer — the kind that helps write
+software. Normally only they can talk to it.
+
+This tool lets them share it. Other people join with a link and can see
+everything the AI says, suggest what to ask it next, and vote on those
+suggestions. **Nothing is sent to the AI until the group agrees.**
+
+That is the whole idea. Everything else on this page is detail.
 
 ## The words we use
 
@@ -29,6 +41,10 @@ Three more show up once you go past the basics:
 | **Relay** | A middleman server, for when your teammates cannot reach your machine directly. |
 
 ## Reading path
+
+**0 · If you were invited**
+
+- [Someone sent you a link](./joining.md) — the non-technical guide; nothing to install
 
 **1 · Get a room running**
 
@@ -65,6 +81,11 @@ Three more show up once you go past the basics:
 
 **Does everyone need an API key?** No. Only the host needs a coding CLI they are
 signed into. Everyone else joins with a link and needs nothing.
+
+**Can non-technical people take part?** Yes, and that is a normal way to use it.
+Someone who was sent a link clicks it, types their name, and reads and votes in
+their browser — no terminal, no install, no account. Point them at
+[Someone sent you a link](./joining.md).
 
 **Does everyone need to install it?** No. Seats can join from a browser with
 nothing installed.

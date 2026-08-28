@@ -88,15 +88,19 @@
   <h1>Join <span id="gate-room" class="ok"></span></h1>
   <p>A shared AI session. Everyone sees the same transcript, and nothing is sent to the model until the room agrees.</p>
 
-  <p style="margin-top:22px"><b>In your terminal</b> — the full experience:</p>
-  <div class="cmd"><code id="cmd"></code><button id="copy">copy</button></div>
-
-  <p><b>Or take a seat right here.</b> You can read, propose, and vote from this page.</p>
+  <!-- The browser seat goes first, deliberately. Most people arriving here were
+       sent a link and are not programmers; leading with a shell command asks
+       them to skip past something they cannot use to reach the button they
+       want. The terminal seat is the alternative, not the headline. -->
+  <p style="margin-top:22px"><b>Type your name and join.</b> Nothing to install — you can read, suggest and vote right here.</p>
   <div class="btns">
     <input type="text" id="gate-name" placeholder="your name" style="max-width:200px" />
     <button id="enter">Join in the browser</button>
   </div>
   <p class="hint" id="gate-err"></p>
+
+  <p style="margin-top:22px" class="hint">Prefer a terminal? Run this instead:</p>
+  <div class="cmd"><code id="cmd"></code><button id="copy">copy</button></div>
 </div>
 
 <header id="chrome" hidden>

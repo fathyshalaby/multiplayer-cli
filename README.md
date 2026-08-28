@@ -12,6 +12,23 @@ to ask next, and nothing is sent to the model until the group agrees.
 
 **[multiplayer-cli.dev →](https://fathyshalaby.github.io/multiplayer-cli/)** — the short version, with the demo running.
 
+> **Were you sent a link?** You do not need any of this page.
+> Read [Someone sent you a link](./docs/joining.md) instead — it takes two
+> minutes and assumes nothing technical.
+
+## In plain English
+
+One person opens an AI assistant on their computer — the kind that helps write
+software. Normally only they can talk to it, and everyone else watches over a
+shoulder.
+
+This shares it. Other people join with a link, see everything the AI says,
+suggest what to ask next, and vote on those suggestions. **Nothing reaches the
+AI until the group agrees.**
+
+The people joining need no account, no key, and nothing installed. Only the
+person starting it does.
+
 ## Why
 
 Pair programming with an AI is usually one person driving and everyone else
@@ -164,6 +181,7 @@ reading path.
 
 | | |
 |---|---|
+| [Someone sent you a link](./docs/joining.md) | **for non-technical teammates** — nothing to install |
 | [Getting started](./docs/getting-started.md) | install, share, join, take a turn |
 | [Deciding together](./docs/deciding.md) | the voting rules and how to tune them |
 | [Backends](./docs/backends.md) | which AI CLI runs the session |
