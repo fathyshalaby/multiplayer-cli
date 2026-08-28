@@ -15,6 +15,10 @@ interface Runner extends RunnerInfo {
 
 export interface RoutedOptions {
   dispatch: RemoteDispatch;
+  /** Is this a backend whose tool calls the room would otherwise vote on? */
+  gatesTools?(backend: string): boolean;
+  /** Does this room's policy actually put tool calls to a vote right now? */
+  toolsAreGated?(): boolean;
   /** Called whenever the roster or the active runner changes. */
   onChange(): void;
   onNotice(text: string): void;
@@ -107,6 +111,21 @@ export class RoutedBackend implements AgentBackend {
     });
     if (!this.activeId) this.activeId = id;
     this.opts.onNotice(`${name} offered their ${backend} session to the room`);
+    /**
+     * Tell the room when accepting this runner weakens its own tool gate.
+     *
+     * `anthropic` and `echo` are the two backends where the room votes on the
+     * model's tool calls, because they are the two where mpx owns the loop. A
+     * runner runs that loop on its own machine and approves locally, so turns
+     * routed there skip the vote that the same turn would have needed at home.
+     * A host who set `--policy strict` specifically to have every command
+     * voted on should hear that, rather than keep believing it.
+     */
+    if (this.opts.gatesTools?.(backend) && this.opts.toolsAreGated?.()) {
+      this.opts.onNotice(
+        `note: ${name}'s ${backend} turns approve their own tool calls — this room votes on tool calls only for turns it runs itself`,
+      );
+    }
     this.opts.onChange();
   }
 

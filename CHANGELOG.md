@@ -4,6 +4,24 @@
 
 ### Security
 
+- **The tool gate did not follow a turn onto a pooled runner.** On `anthropic`
+  and `echo` the room votes on the model's tool calls, because those are the
+  two backends where mpx owns the agent loop. A runner runs that loop on its
+  own machine and approved every tool call locally, so a turn routed there
+  executed commands the same turn would have had to put to the room at home.
+  A `strict` room — where nothing is auto-allowed and every command is meant to
+  need unanimity — was quietly getting something weaker than it asked for, and
+  `security.md` said otherwise.
+
+  For a CLI backend there is nothing to fix: `codex` and the rest run their own
+  agent loops and permission systems, and the room never saw those tool calls
+  to vote on. Closing it for the other two means carrying each approval back
+  over the socket and holding the turn until the room answers — a protocol
+  change, and one that needs an answer for a runner that drops mid-vote. So for
+  now it is announced rather than silent: the room is told when such a runner
+  joins, the runner is told on its own machine, and both docs say plainly that
+  the gate describes turns the room runs itself.
+
 - **The transcript was world-readable.** `.mpx/<room>.jsonl` is the room in
   plain text — every proposal, every veto reason, the chat, and everything the
   model said, which includes whatever it read out of the repository. It was

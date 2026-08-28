@@ -96,6 +96,11 @@ The gate is the real control:
 | `--set autoAllow=none` | nothing is auto-approved, not even reads |
 | `--backend echo` | nothing runs at all — a complete dry run |
 
+**These describe turns the room runs itself.** With `--pool` on, a turn routed
+to a runner approves its own tool calls on that runner's machine — see
+[Account pooling](./pooling.md). The room and the runner both say so when it
+applies, but if the tool gate is why you are here, leave pooling off.
+
 On backends that run their own agent loop (`claude-code`, `codex`, `copilot`,
 `opencode`) the room votes on prompts but **not** on tool calls; those obey that
 tool's own permission system. Set it explicitly rather than relying on its
@@ -130,6 +135,9 @@ something not to say in a room.
 - **No protection from an active attacker who already has the link.** The token
   authenticates the handshake, so anyone holding it can be a legitimate party —
   including in the middle. The link is the trust boundary.
+- **The tool gate does not reach a pooled runner.** `--pool` routes turns onto
+  other people's machines, where the agent loop runs and approves its own tool
+  calls. Off by default, opt-in on both sides, and announced when it applies.
 - **No protection from other accounts on your own machine.** The transcript is
   owner-only now, but a link passed on the command line is visible in `ps`, and
   anything the room writes into the repository is written as you.
