@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Security
+
+- **Tool paths could escape the working directory through a symlink.**
+  `safePath` was a lexical check — `resolve` then `relative` — while its own
+  comment claimed "symlinks included". `resolve` does not follow links, so
+  `sub/link/id_rsa` contained no `..`, was not absolute, and passed; both
+  `read_file` and `write_file` then followed it anywhere on disk. The
+  `search` walker had the same hole by another door, since a symlink is not a
+  directory and fell through to be read.
+
+  This mattered more than a containment bug usually does: `read` is
+  auto-allowed in every preset except `strict`, so the escape was not gated by
+  a vote — in a tool whose entire claim is that the room agrees first. And
+  repositories containing a link out of themselves are ordinary: monorepo
+  package links, a checkout with a link to `$HOME`, fixtures pointing at
+  shared data.
+
+  Both sides are resolved now and re-checked, keeping the unresolved tail so
+  `write_file` can still name a file that does not exist yet, and resolving the
+  room's own cwd too so a room hosted under a symlinked path (`/tmp`, on macOS)
+  still works. Proven against a real symlink before and after.
+- **The editor panel escaped `<` and `>` but not quotes**, and put the result
+  inside double-quoted attributes — so a value containing `"` closed the
+  attribute and the rest parsed as markup, under a CSP that allows inline
+  script. Reaching it needs a hostile or compromised room server, which the
+  threat model already grants a great deal, but script execution in the
+  victim's editor webview is past what that model concedes. The browser seat's
+  escaper had always covered quotes; the two seats disagreed about what was
+  safe, which is the drift the house rule about keeping seats level exists to
+  catch.
+
+Both are regression-tested, and each test was confirmed to fail with its fix
+reverted.
+
 - **The invite screen rendered the empty room underneath itself.** `header` sets
   `display: flex`, which beats the browser's own `[hidden] { display: none }`, so
   the room chrome showed through the invite complete with a placeholder dash —

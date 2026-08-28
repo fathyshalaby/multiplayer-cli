@@ -62,8 +62,17 @@ certificate.
 ## What the room can reach
 
 Tools run on the **host's** machine, in `--cwd`. Paths that escape that directory
-are refused, but everything inside it is fair game for whatever the room
-approves — and everyone with the link can propose.
+are refused — `../`, absolute paths, and symlinks that point out of it — but
+everything inside it is fair game for whatever the room approves, and everyone
+with the link can propose.
+
+> Symlink containment was added in the unreleased version. Before it, the check
+> was lexical only: a link inside the working directory pointing anywhere else
+> was an innocent-looking relative path, and both reads and writes followed it.
+> Because `read` is auto-allowed in every preset except `strict`, that escape
+> was not gated by a vote. If you are running an older build on a repository
+> that contains links out of itself, use `--policy strict` or
+> `--set autoAllow=none`.
 
 The gate is the real control:
 

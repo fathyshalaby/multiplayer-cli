@@ -13,6 +13,68 @@ import { riskOf, summarize, runTool } from "../src/agent/tools.js";
 import { wrapText, truncate, stripAnsi } from "../src/util/ansi.js";
 import type { Proposal } from "../src/protocol.js";
 
+/* ---- tool path containment ------------------------------------- */
+
+/**
+ * `safePath` used to be a purely lexical check while its comment claimed
+ * "symlinks included". `resolve` does not follow links, so a link inside the
+ * room was a lexically innocent path and both reads and writes went straight
+ * through it to anywhere on disk — un-voted, since `read` is auto-allowed in
+ * every preset but `strict`.
+ */
+test("a symlink out of the working directory is refused, for reads and writes", async () => {
+  const { mkdtempSync, writeFileSync, symlinkSync, mkdirSync } = await import("node:fs");
+  const outside = mkdtempSync(join(tmpdir(), "mpx-outside-"));
+  writeFileSync(join(outside, "secret.txt"), "private\n");
+
+  const room = mkdtempSync(join(tmpdir(), "mpx-room-"));
+  mkdirSync(join(room, "sub"));
+  symlinkSync(outside, join(room, "sub", "elsewhere"));
+
+  const read = await runTool(room, "read_file", { path: "sub/elsewhere/secret.txt" });
+  assert.equal(read.ok, false, "reading through a symlink must not escape the room");
+  assert.match(read.content, /escapes/);
+
+  const wrote = await runTool(room, "write_file", { path: "sub/elsewhere/planted.txt", content: "x" });
+  assert.equal(wrote.ok, false, "writing through a symlink must not escape the room either");
+
+  const found = await runTool(room, "search", { pattern: "private" });
+  assert.ok(!found.content.includes("private"), "the walker must not read through symlinks either");
+});
+
+test("the plain traversals stay refused", async () => {
+  const { mkdtempSync } = await import("node:fs");
+  const room = mkdtempSync(join(tmpdir(), "mpx-room-"));
+  for (const path of ["../../etc/hostname", "/etc/hostname"]) {
+    const r = await runTool(room, "read_file", { path });
+    assert.equal(r.ok, false, `${path} must be refused`);
+  }
+});
+
+/**
+ * The two cases a naive realpath fix breaks: a link that stays inside the room,
+ * and a room whose own cwd is reached through one (which /tmp is, on macOS).
+ */
+test("legitimate paths still resolve, including links that stay inside", async () => {
+  const { mkdtempSync, writeFileSync, symlinkSync, mkdirSync } = await import("node:fs");
+  const real = mkdtempSync(join(tmpdir(), "mpx-real-"));
+  mkdirSync(join(real, "src"));
+  writeFileSync(join(real, "src", "app.ts"), "export const x = 1;\n");
+  symlinkSync(join(real, "src"), join(real, "linked"));
+
+  assert.equal((await runTool(real, "read_file", { path: "src/app.ts" })).ok, true);
+  assert.equal((await runTool(real, "read_file", { path: "linked/app.ts" })).ok, true);
+  assert.equal((await runTool(real, "write_file", { path: "src/fresh.ts", content: "ok" })).ok, true);
+
+  const viaLink = join(mkdtempSync(join(tmpdir(), "mpx-via-")), "room");
+  symlinkSync(real, viaLink);
+  assert.equal(
+    (await runTool(viaLink, "read_file", { path: "src/app.ts" })).ok,
+    true,
+    "a cwd reached through a symlink must still be able to read its own files",
+  );
+});
+
 /* ---- commands ---------------------------------------------------- */
 
 const ctx = { defaultProposal: () => "#7" };

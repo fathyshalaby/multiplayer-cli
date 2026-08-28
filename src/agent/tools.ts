@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ToolRisk } from "../protocol.js";
 
@@ -147,10 +147,59 @@ export interface ToolOutcome {
   content: string;
 }
 
-/** Refuse to escape the room's working directory, symlinks included. */
-function safePath(cwd: string, p: string): string | null {
+/**
+ * Resolve every symlink we can, keeping the part that does not exist yet.
+ *
+ * `write_file` legitimately names a file that is not there, so realpath on the
+ * whole path would throw and there would be nothing to check. Walk up to the
+ * deepest ancestor that does exist, resolve *that*, and put the remaining
+ * segments back on the end.
+ */
+async function resolveLinks(p: string): Promise<string> {
+  const tail: string[] = [];
+  let cur = p;
+  for (;;) {
+    try {
+      const real = await realpath(cur);
+      return tail.length ? resolve(real, ...tail.reverse()) : real;
+    } catch {
+      const parent = dirname(cur);
+      if (parent === cur) return p; // reached the filesystem root; nothing resolved
+      tail.push(basename(cur));
+      cur = parent;
+    }
+  }
+}
+
+/**
+ * Refuse to escape the room's working directory, symlinks included.
+ *
+ * The lexical check stops `../` and absolute paths, and it used to be the whole
+ * function — which meant it did not do what its own comment claimed. `resolve`
+ * does not follow symlinks, so a link inside the room pointing anywhere else
+ * was a lexically innocent path: `sub/link/id_rsa` has no `..` in it, and both
+ * reads and writes went straight through to wherever the link led.
+ *
+ * That is worth more than it looks. `read` is auto-allowed in every preset
+ * except `strict`, so an escape here is not gated by a vote at all — in a tool
+ * whose entire claim is that the room agrees first. Repositories that contain a
+ * link out of themselves are ordinary: monorepo package links, a checkout with
+ * a link to `$HOME`, a fixture directory pointing at shared data.
+ *
+ * So resolve both sides and check again. Both, because the room's own cwd may
+ * itself be reached through a link (`/tmp` is one on macOS), and comparing a
+ * resolved target against an unresolved root rejects every legitimate path.
+ */
+async function safePath(cwd: string, p: string): Promise<string | null> {
   const target = isAbsolute(p) ? p : resolve(cwd, p);
-  const rel = relative(cwd, target);
+
+  // Cheap first, and it catches `../` before touching the disk at all.
+  const lexical = relative(cwd, target);
+  if (lexical.startsWith("..") || isAbsolute(lexical)) return null;
+
+  const rootReal = await realpath(cwd).catch(() => cwd);
+  const targetReal = await resolveLinks(target);
+  const rel = relative(rootReal, targetReal);
   if (rel.startsWith("..") || isAbsolute(rel)) return null;
   return target;
 }
@@ -177,7 +226,7 @@ export async function runTool(cwd: string, name: string, input: any): Promise<To
 }
 
 async function toolReadFile(cwd: string, input: any): Promise<ToolOutcome> {
-  const target = safePath(cwd, String(input.path ?? ""));
+  const target = await safePath(cwd, String(input.path ?? ""));
   if (!target) return { ok: false, content: "path escapes the shared working directory" };
   const text = await readFile(target, "utf8");
   const lines = text.split("\n");
@@ -190,7 +239,7 @@ async function toolReadFile(cwd: string, input: any): Promise<ToolOutcome> {
 }
 
 async function toolListDir(cwd: string, input: any): Promise<ToolOutcome> {
-  const target = safePath(cwd, String(input.path ?? "."));
+  const target = await safePath(cwd, String(input.path ?? "."));
   if (!target) return { ok: false, content: "path escapes the shared working directory" };
   const entries = await readdir(target, { withFileTypes: true });
   const out: string[] = [];
@@ -207,7 +256,7 @@ async function toolListDir(cwd: string, input: any): Promise<ToolOutcome> {
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", "target", "__pycache__"]);
 
 async function toolSearch(cwd: string, input: any): Promise<ToolOutcome> {
-  const root = safePath(cwd, String(input.path ?? "."));
+  const root = await safePath(cwd, String(input.path ?? "."));
   if (!root) return { ok: false, content: "path escapes the shared working directory" };
   let re: RegExp;
   try {
@@ -229,6 +278,10 @@ async function toolSearch(cwd: string, input: any): Promise<ToolOutcome> {
         await walk(full, depth + 1);
         continue;
       }
+      // A symlink is not a directory, so it fell through to be read below —
+      // the same escape as safePath's, reached by walking instead of naming.
+      // Skipping them outright is what ripgrep does by default.
+      if (e.isSymbolicLink()) continue;
       if (suffix && !e.name.endsWith(suffix)) continue;
       const s = await stat(full).catch(() => null);
       if (!s || s.size > 2_000_000) continue;
@@ -246,7 +299,7 @@ async function toolSearch(cwd: string, input: any): Promise<ToolOutcome> {
 }
 
 async function toolWriteFile(cwd: string, input: any): Promise<ToolOutcome> {
-  const target = safePath(cwd, String(input.path ?? ""));
+  const target = await safePath(cwd, String(input.path ?? ""));
   if (!target) return { ok: false, content: "path escapes the shared working directory" };
   await writeFile(target, String(input.content ?? ""), "utf8");
   return { ok: true, content: `wrote ${relative(cwd, target)}` };
