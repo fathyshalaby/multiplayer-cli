@@ -4,6 +4,20 @@
 
 ### Security
 
+- **The transcript was world-readable.** `.mpx/<room>.jsonl` is the room in
+  plain text — every proposal, every veto reason, the chat, and everything the
+  model said, which includes whatever it read out of the repository. It was
+  written at the umask default, so on a dev box, a build agent or a shared jump
+  host every other account could read every session. It is `0600` in a `0700`
+  directory now. Old transcripts on a shared machine want a `chmod 600`.
+- **The link can now come from the environment.** `mpx join <link>` puts the
+  room's key in `argv`, where any other account can read it out of `ps`, and in
+  your shell history afterwards. The token is kept off the wire with real care,
+  so leaving it in the process table was the wrong end to be careless at.
+  `MPX_LINK=… mpx join` avoids both. The argument still wins when both are
+  given, so nothing that works today stops working, and `security.md` now says
+  plainly that a link on a command line is exposed.
+
 - **Tool paths could escape the working directory through a symlink.**
   `safePath` was a lexical check — `resolve` then `relative` — while its own
   comment claimed "symlinks included". `resolve` does not follow links, so

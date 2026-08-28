@@ -41,6 +41,20 @@ room name. Put TLS in front if that matters.
 
 Anyone holding the link can join and decrypt everything.
 
+**It is in your shell history and your process table.** The token is kept off
+the wire with some care, but `mpx join <link>` puts it in `argv`, where any
+other account on the machine can read it out of `ps` for as long as the seat is
+running — and your shell writes it to history afterwards. On your own laptop
+that is usually nothing. On a shared box, a build agent or a jump host it is the
+easiest way to lose a room. Pass it in the environment instead:
+
+```bash
+MPX_LINK='http://…/s/room#t=…' mpx join
+```
+
+A leading space keeps most shells from recording the line at all, and `mpx
+share` prints the link rather than taking one, so the host side is unaffected.
+
 - It lives in the URL **fragment** (`#t=…`), which browsers never send to a
   server, so it stays out of access logs, proxy history and `Referer` headers.
 - It is **not rotated**, and there is no revocation short of restarting the room
@@ -94,6 +108,15 @@ containing proposals, votes, veto reasons, chat and model output — in plain te
 on the host's disk. It is an audit log by design; treat it as one. The encryption
 protects the wire, not the disk.
 
+The file is created `0600` and its directory `0700`, so it is readable by the
+account that hosted the room and not by everyone else on the machine. Before the
+unreleased version it was written at the umask default, which on most systems is
+world-readable — if you have old transcripts on a shared machine, `chmod 600`
+them.
+
+It is still plain text at rest. Anything you would not want in a file is
+something not to say in a room.
+
 ## What this does not do
 
 - **No in-session rekeying.** One key per *connection*, not rotated during it.
@@ -107,6 +130,9 @@ protects the wire, not the disk.
 - **No protection from an active attacker who already has the link.** The token
   authenticates the handshake, so anyone holding it can be a legitimate party —
   including in the middle. The link is the trust boundary.
+- **No protection from other accounts on your own machine.** The transcript is
+  owner-only now, but a link passed on the command line is visible in `ps`, and
+  anything the room writes into the repository is written as you.
 - **Not audited.** Standard constructions used in a straightforward way
   (HKDF-SHA256, ECDH P-256, HMAC-SHA256, AES-256-GCM), but no third party has
   reviewed this.

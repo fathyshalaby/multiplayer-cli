@@ -13,6 +13,29 @@ import { riskOf, summarize, runTool } from "../src/agent/tools.js";
 import { wrapText, truncate, stripAnsi } from "../src/util/ansi.js";
 import type { Proposal } from "../src/protocol.js";
 
+/* ---- what lands on disk ------------------------------------------ */
+
+/**
+ * The transcript is the room in plain text — proposals, veto reasons, chat, and
+ * whatever the model said, which includes whatever it read out of the
+ * repository. It used to be written at the umask default, so on a shared
+ * machine every account could read every session.
+ */
+test("the transcript is written for its owner only", async () => {
+  const { mkdtempSync, statSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "mpx-perm-"));
+  const path = join(dir, ".mpx", "room.jsonl");
+
+  const t = new Transcript(path);
+  t.write({ t: "chat", fromId: "a", fromName: "alice", text: "secret", at: Date.now() });
+  await new Promise((r) => setTimeout(r, 60));
+
+  // Windows does not carry these bits; the mode there is not meaningful.
+  if (process.platform === "win32") return;
+  assert.equal(statSync(path).mode & 0o777, 0o600, "the transcript must not be world-readable");
+  assert.equal(statSync(join(dir, ".mpx")).mode & 0o777, 0o700, "nor the directory holding it");
+});
+
 /* ---- tool path containment ------------------------------------- */
 
 /**

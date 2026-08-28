@@ -316,8 +316,27 @@ async function cmdServe(p: Parsed): Promise<void> {
 /* ------------------------------------------------------------------ */
 
 async function cmdJoin(p: Parsed): Promise<void> {
-  const target = p.positional[0] ?? (typeof p.flags.get("url") === "string" ? String(p.flags.get("url")) : null);
-  if (!target) fatal("usage: mpx join <link>   (the host prints one when the room starts)");
+  /**
+   * The link can come from the environment instead of the command line.
+   *
+   * A link on the command line is in `ps` for every account on the machine,
+   * and in the shell history afterwards. The token in it is the room's key, so
+   * that is a worse place for it than the wire it is deliberately kept off.
+   * Most of the time nobody else is on the machine and it does not matter; on a
+   * shared box, a build agent or a jump host it does, and there was no way to
+   * avoid it.
+   *
+   * The argument still wins when both are given, so nothing that works today
+   * stops working.
+   */
+  const fromEnv = process.env.MPX_LINK?.trim() || null;
+  const target =
+    p.positional[0] ??
+    (typeof p.flags.get("url") === "string" ? String(p.flags.get("url")) : null) ??
+    fromEnv;
+  if (!target) {
+    fatal("usage: mpx join <link>   (the host prints one when the room starts)\n       or set MPX_LINK, to keep the token out of your shell history");
+  }
 
   const join = parseJoinTarget(target!);
   guardPlaintext(join.url, join.token, bool(p, "insecure", false));
@@ -668,6 +687,8 @@ ${c.bold("Security")}
 
 ${c.bold("Seat options")}
   --name <name>          your display name (remembered)
+  MPX_LINK=<link>        take the link from the environment instead of argv, so
+                         the token stays out of ps and your shell history
   --observer             read-only: see everything, propose nothing
   --plain                one scrolling column instead of the full-screen panes
                          (also MPX_PLAIN=1; automatic when piped or on a small

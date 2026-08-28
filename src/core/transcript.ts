@@ -1,4 +1,4 @@
-import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
+import { chmodSync, createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ServerMessage } from "../protocol.js";
@@ -21,8 +21,24 @@ export class Transcript {
 
   constructor(readonly path: string | null) {
     if (!path) return;
-    mkdirSync(dirname(path), { recursive: true });
-    this.stream = createWriteStream(path, { flags: "a" });
+    // 0700/0600, not whatever the umask says.
+    //
+    // This file is the room in plain text — every proposal, every veto reason,
+    // the chat, and everything the model said, which includes whatever it read
+    // out of the repository. The default 0644 makes all of that readable by
+    // every account on the machine, which on a dev box, a build agent or a
+    // shared jump host is a real audience. The wire is encrypted with some
+    // care; it would be odd to then leave the transcript of it world-readable.
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    this.stream = createWriteStream(path, { flags: "a", mode: 0o600 });
+    // `mode` only applies when the file is created, and a resumed room appends
+    // to one that already exists. Tighten it either way; best-effort, because
+    // not every filesystem has anything to tighten.
+    try {
+      chmodSync(path, 0o600);
+    } catch {
+      /* windows, a mounted share, someone else's file — leave it be */
+    }
   }
 
   write(msg: ServerMessage): void {
