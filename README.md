@@ -1,42 +1,52 @@
 # multiplayer-cli
 
-**Make your AI session multiplayer.**
+**Share one AI coding session with your team.**
 
-One AI session. Several people in it. Nothing reaches the model until the room
-agrees.
+You run a Claude Code / Codex / Copilot session on your machine. Your teammates
+join with a link. Everyone sees the same conversation, anyone can suggest what
+to ask next, and nothing is sent to the model until the group agrees.
 
 <p align="center">
   <img src="./docs/media/session.svg" alt="A recorded multiplayer-cli session: two people in a room, the agent stopping at a fork to ask whether the v1 API should keep working, and the room voting on which direction it takes." width="760">
 </p>
 
-Pair programming with an AI is usually one person driving and everyone else
-reading over a shoulder — or worse, three people running three private sessions
-that each learn a third of the context. `mpx` makes the session itself the
-shared object: everyone sees the same transcript, everyone can propose, and the
-room decides together what actually gets sent.
-
-Works with **Claude Code**, **Codex**, **Copilot CLI**, **OpenCode**, **Gemini**,
-**Cursor**, **Aider** and **Amp** — whichever you are already signed into.
-
----
-
 **[multiplayer-cli.dev →](https://fathyshalaby.github.io/multiplayer-cli/)** — the short version, with the demo running.
 
-## Install
+> **Were you sent a link?** You do not need any of this page.
+> Read [Someone sent you a link](./docs/joining.md) instead — it takes two
+> minutes and assumes nothing technical.
+
+## In plain English
+
+One person opens an AI assistant on their computer — the kind that helps write
+software. Normally only they can talk to it, and everyone else watches over a
+shoulder.
+
+This shares it. Other people join with a link, see everything the AI says,
+suggest what to ask next, and vote on those suggestions. **Nothing reaches the
+AI until the group agrees.**
+
+The people joining need no account, no key, and nothing installed. Only the
+person starting it does.
+
+## Why
+
+Pair programming with an AI is usually one person driving and everyone else
+reading over a shoulder. Or worse: three people running three private sessions
+that each learn a third of the context.
+
+`mpx` makes the session itself the shared thing. One conversation, one context,
+one place the work happens — and a vote in front of it, so the group decides
+together what actually gets sent.
+
+## Try it in 30 seconds
 
 ```bash
-npm install -g multiplayer-cli
+npx github:fathyshalaby/multiplayer-cli share
 ```
 
-Node 20.11+, and one dependency. No API key needed — the room runs on whatever
-coding CLI you are already logged into. Everyone else joins with `mpx`, or from
-a browser with nothing installed at all.
-
-## The whole thing
-
-```bash
-mpx share
-```
+That is the whole setup. It finds whichever coding CLI you are already signed
+into, starts a room, and prints a link to paste into chat:
 
 ```
   amber-ridge-04   claude-code  ·  ~/work/api
@@ -46,23 +56,21 @@ mpx share
   Send this to your team:
 
     http://192.168.1.20:7777/s/amber-ridge-04#t=Kf3nQ8vLm2
-
-    Opening it gives them a seat in the browser, or the command to join from a terminal.
 ```
 
-Paste the link in chat. Whoever clicks it lands on a page offering two ways in —
-a seat right there in the browser, or the one-line command for a terminal:
+Whoever opens that link gets a seat — **in the browser, with nothing installed
+and no API key** — or the one-line command to join from a terminal.
 
-```bash
-npx multiplayer-cli join ws://192.168.1.20:7777/r/amber-ridge-04?t=Kf3nQ8vLm2
-```
+Then type to suggest, `/y` to agree. That is the whole interface.
 
-Then type to propose, `/y` to agree. That is the whole interface.
+> **No coding CLI installed?** It still runs, on an offline demo backend, so you
+> can see how a room works before anything is real.
+>
+> **Not on npm yet.** Once it is published, `npm install -g multiplayer-cli`
+> will give you the shorter `mpx` command. Until then use the `npx github:` form
+> above — the rest of these docs write `mpx` for brevity.
 
-No coding CLI installed? `mpx share` still runs, on an offline demo backend, so
-you can see how a room works before anything is real.
-
----
+Requires Node 20.11+. One dependency. Only the host needs any of this.
 
 ## How it works
 
@@ -73,22 +81,18 @@ you can see how a room works before anything is real.
                    └── votes ────────┘
 ```
 
-The host runs the room. Participants are thin seats: they never talk to the
+The host runs the room. Everyone else is a thin seat: they never talk to the
 model, they propose and vote, and the room streams one response to everyone.
 Every turn runs on the host's account, on the host's machine.
+
+Four things follow from that:
 
 **Typing is suggesting.** In a gated room a line of text is a proposal, not a
 message. It gets an id (`#4`), a tally, and usually a countdown.
 
-**The room votes.** `/y` approves, `/n` rejects — with an optional reason that
-becomes the recorded justification — and `/amend` rewrites a proposal, which
-clears its votes, because people approved the old wording.
-
-**The model's tool calls are voted on too.** When the assistant wants to run
-`bash: rm -rf build/`, that becomes a proposal like any other and the turn
-genuinely blocks until the room answers. A denial goes back to the model as a
-decision, not an error. *(On backends where mpx owns the agent loop — see
-[Backends](./docs/backends.md).)*
+**The room votes.** `/y` approves. `/n` rejects, with an optional reason that
+becomes the recorded justification. `/amend` rewrites a proposal and clears its
+votes, because people approved the old wording.
 
 **Side chat is free.** `/say let's ask it to compare the two first` reaches the
 room and never touches the model or the context window.
@@ -97,31 +101,92 @@ room and never touches the model or the context window.
 proposed what, who approved, who vetoed and why. Replay it with
 `mpx transcript`.
 
-**Traffic is end-to-end encrypted, with forward secrecy.** The token in the
-share link authenticates an ephemeral key exchange rather than being the key, so
-a relay or proxy in the path moves ciphertext it cannot read — and a recording
-made today stays unreadable even if the link leaks tomorrow. The token itself
-never goes on the wire. See [Security model](./docs/security.md).
-
----
-
-## Documentation
+## Works with what you already have
 
 | | |
 |---|---|
-| [Getting started](./docs/getting-started.md) | install, share, join, and the commands in a session |
-| [The terminal seat](./docs/the-screen.md) | the full-screen panes, the keys, and when it uses one column |
-| [Deciding together](./docs/deciding.md) | the voting rules, presets, and how to tune them |
-| [Backends](./docs/backends.md) | which AI CLI runs the session, and adding another |
+| **Claude Code · Codex · Copilot · OpenCode · Gemini · Cursor · Aider · Amp** | whichever you are signed into |
+| **Anthropic API** | if you would rather use a key |
+| **Offline demo** | no key, no spend, a full dry run of a room |
+
+No API key needed for the room itself — it runs on whatever coding CLI the host
+already pays for. See [Backends](./docs/backends.md).
+
+## Decide how you decide
+
+| Preset | A prompt is sent when | Good for |
+|---|---|---|
+| `solo` | immediately — no vote | a shared screen with no ceremony |
+| `pair` | everyone consents, 20s timer, any veto stops it | two or three people |
+| `team` *(default)* | a majority agrees, 45s timer | a working group |
+| `strict` | everyone actively says yes, no timers | production, or an audience you don't know |
+| `host` | the host says so | demos and workshops |
+| `round-robin` | whoever holds the mic proposes | structured sessions |
+
+```bash
+mpx share --policy strict
+```
+
+Details in [Deciding together](./docs/deciding.md).
+
+## Beyond the basics
+
+None of this is required. A room works with none of it.
+
+**Vote on the model's tool calls.** When the assistant wants to run
+`bash: rm -rf build/`, that becomes a proposal like any other and the turn
+genuinely blocks until the room answers. A denial goes back to the model as a
+decision, not an error. *(On backends where mpx owns the agent loop — see
+[Backends](./docs/backends.md).)*
+
+**Try one prompt three ways at once.** `/race 3 make the retry logic
+exponential` runs it in three parallel git worktrees. Everyone sees a diff per
+lane and votes on which one lands:
+
+```
+  ✓ A  3 files +64 -12        ⚑ #4 land lane A
+  ·  B  finished without changing anything
+  ✓ C  1 file +8 -3           ⚑ #5 land lane C
+```
+
+Voting all of them down is a legitimate answer — you found out that none of the
+three approaches was right, in the time it took to try one.
+See [Racing](./docs/racing.md).
+
+**Let the agent ask you.** Every gate above is the room interrupting the agent.
+This is the other direction: the agent hits a real fork and stops to ask which
+way, *before* spending the work.
+
+```
+  ⑂ codex asks the room to pick a direction
+    Should the v1 API keep working after this change?
+
+    ⑂ #2 a — Shim it      keep v1 alive behind an adapter
+    ⑂ #3 b — Migrate      drop v1 and update every caller
+```
+
+*"Must v1 keep working?"* is a decision, not a fact — no amount of running the
+code settles it. See [Crossroads](./docs/crossroads.md).
+
+**Traffic is end-to-end encrypted, with forward secrecy.** The token in the
+share link authenticates a key exchange rather than being the key, so a relay or
+proxy in the path moves ciphertext it cannot read — and a recording made today
+stays unreadable even if the link leaks tomorrow. The token never goes on the
+wire. See [Security model](./docs/security.md).
+
+## Documentation
+
+**[Start with the docs index →](./docs/README.md)** — a glossary and an ordered
+reading path.
+
+| | |
+|---|---|
+| [Someone sent you a link](./docs/joining.md) | **for non-technical teammates** — nothing to install |
+| [Getting started](./docs/getting-started.md) | install, share, join, take a turn |
+| [Deciding together](./docs/deciding.md) | the voting rules and how to tune them |
+| [Backends](./docs/backends.md) | which AI CLI runs the session |
 | [Reaching your team](./docs/relay.md) | LAN, relays, tunnels |
 | [Security model](./docs/security.md) | what the token protects, and what it does not |
-| [Racing](./docs/racing.md) | trying one prompt several ways at once, and voting on the diff |
-| [Splitting](./docs/splitting.md) | different work in parallel lanes, each landing on its own |
-| [Crossroads](./docs/crossroads.md) | when the agent stops at a fork and asks the room which way |
-| [Account pooling](./docs/pooling.md) | spreading turns across accounts — experimental |
-| [The editor seat](./docs/editor.md) | the VS Code / Cursor extension |
-| [Driving it from an agent](./docs/agents.md) | the Claude Code plugin, the Gemini CLI extension, and anything else |
-| [Protocol](./docs/protocol.md) | the wire format, for building your own client |
 
 ## Commands
 
@@ -138,73 +203,6 @@ never goes on the wire. See [Security model](./docs/security.md).
 
 `mpx help --all` lists every option. `mpx host` is `mpx share` without the
 opinionated defaults.
-
-## Decision presets
-
-| Preset | Prompts | Good for |
-|---|---|---|
-| `solo` | open | a shared screen with no ceremony |
-| `pair` | everyone consents, 20s timer, any veto stops it | two or three people |
-| `team` *(default)* | majority + veto, 45s timer | a working group |
-| `strict` | unanimous, no timers | production, or an audience you don't know |
-| `host` | the host decides | demos and workshops |
-| `round-robin` | only whoever holds the mic | structured sessions |
-
-```bash
-mpx share --policy strict
-mpx share --policy team --set mode=quorum --set quorum=3 --set timeout=90s
-```
-
-Details in [Deciding together](./docs/deciding.md).
-
-## Try it three ways at once
-
-A vote decides whether to send a prompt. It cannot tell you whether the answer
-was any good — nobody knows that until somebody tries.
-
-```
-/race 3 make the retry logic exponential
-```
-
-The room runs the prompt three times in parallel, each agent in its own git
-worktree on its own branch. When they finish, everyone sees a diff per lane and
-votes on which one lands:
-
-```
-  ✓ A  3 files +64 -12        ⚑ #4 land lane A
-  ·  B  finished without changing anything
-  ✓ C  1 file +8 -3           ⚑ #5 land lane C
-```
-
-Approving one merges it into your checkout. The branches nobody took are kept,
-not deleted. Voting all of them down is a legitimate answer too — you found out
-that none of the three approaches was right, in the time it took to try one.
-
-Needs a git repository; `mpx share --lanes 0` turns it off. Details in
-[Racing](./docs/racing.md).
-
-## Let the agent ask
-
-Every gate above is the room interrupting the agent. This is the other
-direction: the agent hits a real fork and stops to ask which way, *before*
-spending the work.
-
-```
-  ⑂ codex asks the room to pick a direction
-    Should the v1 API keep working after this change?
-
-    ⑂ #2 a — Shim it      keep v1 alive behind an adapter
-    ⑂ #3 b — Migrate      drop v1 and update every caller
-```
-
-Racing answers "which approach?" by building all of them. This answers it by
-asking — which is the only thing that works when the fork is about intent
-rather than code. *"Must v1 keep working?"* is a decision, not a fact; no
-amount of running the code settles it.
-
-Any backend can raise one, and anyone can raise one by hand with `/ask`. There
-is no timer: silence can approve a message, but it cannot pick a direction.
-Details in [Crossroads](./docs/crossroads.md).
 
 ## Use it from your editor
 
@@ -229,16 +227,15 @@ cp -r skills/multiplayer ~/.claude/skills/
 
 > *"share this session with my team"* — or `/multiplayer`
 
-It starts the room and hands you the link to paste.
-
----
+It starts the room and hands you the link to paste. See
+[Driving it from an agent](./docs/agents.md).
 
 ## Development
 
 ```bash
 npm install
 npm run build
-npm test          # 192 tests, no API key and no coding CLI required
+npm test          # 302 tests, no API key and no coding CLI required
 ```
 
 The layout follows the seams:
@@ -261,9 +258,7 @@ Every voting rule is a unit test. CLI adapters are tested against stub binaries
 that emit exactly what each tool documents, and the browser seat is driven in a
 real Chromium.
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
-
----
+See [CONTRIBUTING.md](./CONTRIBUTING.md) and [CLAUDE.md](./CLAUDE.md).
 
 ## Licence
 

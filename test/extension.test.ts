@@ -417,3 +417,23 @@ test("the marketplace points at a plugin that is actually here", () => {
   // Skills live at the plugin root, and the plugin root here is the repo.
   assert.ok(readFileSync(repo("skills/multiplayer/SKILL.md"), "utf8").startsWith("---"));
 });
+
+/**
+ * The editor panel builds HTML by concatenation and puts escaped values inside
+ * double-quoted attributes, so its escaper has to cover quotes. It covered only
+ * &, < and > while the browser seat's covered quotes too — two seats rendering
+ * the same room, disagreeing about what was safe.
+ */
+test("the editor panel escapes quotes, not just angle brackets", () => {
+  const html = panelHtml();
+  const esc = /const esc = \(s\) =>[\s\S]*?;\n/.exec(html)?.[0] ?? "";
+  assert.ok(esc, "could not find the panel's esc() to check");
+  for (const ch of ['"', "'", "&", "<", ">"]) {
+    assert.ok(
+      esc.includes(ch === '"' ? '\\"' : ch) || esc.includes(ch),
+      `esc() must handle ${ch}`,
+    );
+  }
+  assert.ok(/&quot;/.test(esc), "esc() must map a double quote to &quot; — it lands in attributes");
+  assert.ok(/&#39;|&apos;/.test(esc), "esc() must map a single quote too");
+});

@@ -1,5 +1,7 @@
 # Driving it from an agent
 
+*Installing mpx into Claude Code, Gemini CLI, or any other agent that can run a command.*
+
 `mpx` is a CLI, so any agent that can run a command can start a room. What the
 integrations here add is that the agent knows *when* to, and hands the link over
 without mangling it.
@@ -16,8 +18,9 @@ The repository is a plugin marketplace:
 /plugin install multiplayer@multiplayer-cli
 ```
 
-The skill also ships inside the npm package, so `npm install -g multiplayer-cli`
-puts it on disk whether or not you install the plugin.
+The skill also ships inside the package itself, so installing it
+(`npm install -g github:fathyshalaby/multiplayer-cli`) puts the skill on disk
+whether or not you install the plugin.
 
 ## Gemini CLI
 
@@ -70,3 +73,7 @@ npm run sync -- --check   # verify, which is what CI runs
 A stale copy fails the build. Tests also assert that every backend the CLI has
 is named in the skill, that the marketplace points at a plugin that exists, and
 that the three versions match.
+
+---
+
+[← All documentation](./README.md)

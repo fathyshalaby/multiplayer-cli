@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { RoomServer } from "./server/server.js";
 import { LocalWsTransport, RelayTransport, type Transport } from "./server/transport.js";
-import { Relay } from "./server/relay.js";
+import { Relay, MAX_FRAME_BYTES } from "./server/relay.js";
 import { Connection } from "./client/connection.js";
 import { Tui } from "./client/tui.js";
 import { FullScreenSeat, canFullScreen, type Seat, type SeatOptions } from "./client/fullscreen.js";
@@ -316,8 +316,27 @@ async function cmdServe(p: Parsed): Promise<void> {
 /* ------------------------------------------------------------------ */
 
 async function cmdJoin(p: Parsed): Promise<void> {
-  const target = p.positional[0] ?? (typeof p.flags.get("url") === "string" ? String(p.flags.get("url")) : null);
-  if (!target) fatal("usage: mpx join <link>   (the host prints one when the room starts)");
+  /**
+   * The link can come from the environment instead of the command line.
+   *
+   * A link on the command line is in `ps` for every account on the machine,
+   * and in the shell history afterwards. The token in it is the room's key, so
+   * that is a worse place for it than the wire it is deliberately kept off.
+   * Most of the time nobody else is on the machine and it does not matter; on a
+   * shared box, a build agent or a jump host it does, and there was no way to
+   * avoid it.
+   *
+   * The argument still wins when both are given, so nothing that works today
+   * stops working.
+   */
+  const fromEnv = process.env.MPX_LINK?.trim() || null;
+  const target =
+    p.positional[0] ??
+    (typeof p.flags.get("url") === "string" ? String(p.flags.get("url")) : null) ??
+    fromEnv;
+  if (!target) {
+    fatal("usage: mpx join <link>   (the host prints one when the room starts)\n       or set MPX_LINK, to keep the token out of your shell history");
+  }
 
   const join = parseJoinTarget(target!);
   guardPlaintext(join.url, join.token, bool(p, "insecure", false));
@@ -420,6 +439,7 @@ async function cmdRelay(p: Parsed): Promise<void> {
     maxRooms: num(p, "max-rooms", 64),
     maxPeersPerRoom: num(p, "max-peers", 32),
     joinsPerMinute: num(p, "joins-per-minute", 60),
+    maxFrameBytes: num(p, "max-frame", MAX_FRAME_BYTES),
     directory: bool(p, "directory", false),
     ...(bool(p, "quiet", false)
       ? {}
@@ -636,6 +656,8 @@ ${c.bold("multiplayer-cli")} — make your AI session multiplayer
   mpx relay [--port n]         run a relay, so hosts need no open port
                                --tls-cert/--tls-key to serve wss:// directly
                                --directory to publish the names it hosts
+                               --max-rooms/--max-peers/--joins-per-minute/--max-frame
+                               bound what one caller can take from it
   mpx rooms [relay-url]        what is running on a relay (names only)
   mpx serve [options]          run a room with no seat of your own
   mpx transcript <file>        replay a session's audit log
@@ -668,6 +690,8 @@ ${c.bold("Security")}
 
 ${c.bold("Seat options")}
   --name <name>          your display name (remembered)
+  MPX_LINK=<link>        take the link from the environment instead of argv, so
+                         the token stays out of ps and your shell history
   --observer             read-only: see everything, propose nothing
   --plain                one scrolling column instead of the full-screen panes
                          (also MPX_PLAIN=1; automatic when piped or on a small

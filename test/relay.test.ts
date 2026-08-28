@@ -22,7 +22,7 @@ class TinyBackend implements AgentBackend {
 }
 
 async function startRelay(
-  opts: Partial<{ maxRooms: number; maxPeers: number; joinsPerMinute: number; directory: boolean }> = {},
+  opts: Partial<{ maxRooms: number; maxPeers: number; joinsPerMinute: number; directory: boolean; maxFrameBytes: number }> = {},
 ) {
   const relay = new Relay({
     host: "127.0.0.1",
@@ -31,6 +31,7 @@ async function startRelay(
     maxPeersPerRoom: opts.maxPeers ?? 8,
     joinsPerMinute: opts.joinsPerMinute ?? 60,
     directory: opts.directory ?? false,
+    ...(opts.maxFrameBytes ? { maxFrameBytes: opts.maxFrameBytes } : {}),
   });
   const port = await relay.listen();
   return { relay, port, url: `ws://127.0.0.1:${port}` };
@@ -335,4 +336,44 @@ test("a room leaves the directory when its host does", async (t) => {
 
   const after = (await (await fetch(`http://127.0.0.1:${port}/rooms`)).json()) as any;
   assert.equal(after.rooms.length, 0);
+});
+
+/**
+ * `ws` defaults to a 100 MiB frame. A relay is the one component strangers
+ * connect to, and the one the docs suggest running on a small box for other
+ * people. It buffers each frame and stringifies it to forward, so an unbounded
+ * frame is memory somebody else gets to spend on your machine — at the default
+ * limits, across 64 rooms of 32 seats.
+ */
+test("the relay refuses a frame far larger than a room ever sends", async (t) => {
+  const { relay, url } = await startRelay({ maxFrameBytes: 64 * 1024 });
+  const { server } = await startRoom(url, "bounded", "tok");
+  t.after(async () => {
+    await server.close();
+    await relay.close();
+  });
+
+  const peer = new WebSocket(`${url}/r/bounded`);
+  await new Promise((res) => peer.on("open", res));
+  const closed = new Promise<number>((res) => peer.on("close", (code: number) => res(code)));
+
+  peer.send("x".repeat(200 * 1024));
+  // 1009 is "message too big": ws closes rather than buffering it.
+  assert.equal(await closed, 1009, "an oversized frame must be refused, not absorbed");
+});
+
+test("a frame of ordinary size still crosses the relay", async (t) => {
+  const { relay, url } = await startRelay({ maxFrameBytes: 64 * 1024 });
+  const { server, joinUrl } = await startRoom(url, "ordinary", "tok");
+  t.after(async () => {
+    await server.close();
+    await relay.close();
+  });
+
+  // A real seat, doing the real handshake, over the capped relay.
+  const alice = await connect(joinUrl, "alice", "tok", "ordinary");
+  assert.equal(alice.name, "alice");
+  alice.conn.send({ t: "chat", text: "z".repeat(4000) });
+  await new Promise((r) => setTimeout(r, 200));
+  alice.conn.close();
 });

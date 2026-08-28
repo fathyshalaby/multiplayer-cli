@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { PROTOCOL_VERSION } from "../protocol.js";
 import { id } from "../util/id.js";
 import { httpOrigin, serveWeb, shareLink } from "./web.js";
+import { MAX_FRAME_BYTES } from "./relay.js";
 
 /**
  * One connected seat, independent of how it got here.
@@ -76,7 +77,9 @@ export class LocalWsTransport implements Transport {
       ? (createTlsServer({ cert: opts.tls.cert, key: opts.tls.key }, handler) as unknown as Server)
       : createServer(handler);
     this.secure = Boolean(opts.tls);
-    this.wss = new WebSocketServer({ server: this.http });
+    // A direct room listens on a port anyone who can reach it may connect to,
+    // so it wants the same ceiling the relay has rather than `ws`'s 100 MiB.
+    this.wss = new WebSocketServer({ server: this.http, maxPayload: MAX_FRAME_BYTES });
     this.wss.on("connection", (ws, req) => this.cb?.(socketPeer(ws, req)));
   }
 

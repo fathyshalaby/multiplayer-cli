@@ -72,15 +72,32 @@
   }
   input[type=text]:focus { outline: none; border-color: var(--accent); }
   .hint { font-size: 11px; color: var(--dim); margin-top: 6px; }
-  .gate { max-width: 620px; margin: 8vh auto; padding: 0 20px; }
+  /* `width: 100%` is what makes this fit a phone. `.gate` is a flex item of
+     `body`, and the `auto` side margins that centre it also cancel the default
+     cross-axis stretch — so without an explicit width it takes its 620px
+     max-width whatever the viewport is, and a 390px screen gets the right-hand
+     third of every line cut off. */
+  .gate { width: 100%; max-width: 620px; margin: 8vh auto; padding: 0 20px; }
   .gate h1 { font-size: 19px; margin: 0 0 6px; }
   .gate p { color: var(--dim); }
   .cmd {
     display: flex; gap: 8px; align-items: center; background: var(--panel);
     border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin: 14px 0;
   }
-  .cmd code { flex: 1; overflow-x: auto; white-space: nowrap; }
+  /* `min-width: 0` is load-bearing. A flex item defaults to `min-width: auto`,
+     which refuses to shrink below its content — and this content is one long
+     unwrappable command. Without it the command sets a floor on the width of
+     .cmd, then .gate, then the page, and an invite opened on a phone overflows
+     with the text clipped off the right edge. Most invites are opened on a
+     phone, because the link was pasted into chat. */
+  .cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; }
   .ok { color: var(--ok); } .bad { color: var(--no); } .warn { color: var(--warn); }
+
+  /* Must come last, and must be !important: `header` sets `display: flex`,
+     which beats the user agent's `[hidden] { display: none }` — so the empty
+     room chrome rendered underneath the invite screen, complete with a stray
+     placeholder dash, on the first thing every invited person sees. */
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -88,15 +105,19 @@
   <h1>Join <span id="gate-room" class="ok"></span></h1>
   <p>A shared AI session. Everyone sees the same transcript, and nothing is sent to the model until the room agrees.</p>
 
-  <p style="margin-top:22px"><b>In your terminal</b> — the full experience:</p>
-  <div class="cmd"><code id="cmd"></code><button id="copy">copy</button></div>
-
-  <p><b>Or take a seat right here.</b> You can read, propose, and vote from this page.</p>
+  <!-- The browser seat goes first, deliberately. Most people arriving here were
+       sent a link and are not programmers; leading with a shell command asks
+       them to skip past something they cannot use to reach the button they
+       want. The terminal seat is the alternative, not the headline. -->
+  <p style="margin-top:22px" id="gate-lead"><b>Type your name and join.</b> Nothing to install — you can read, suggest and vote right here.</p>
   <div class="btns">
     <input type="text" id="gate-name" placeholder="your name" style="max-width:200px" />
     <button id="enter">Join in the browser</button>
   </div>
   <p class="hint" id="gate-err"></p>
+
+  <p style="margin-top:22px" class="hint">Prefer a terminal? Run this instead:</p>
+  <div class="cmd"><code id="cmd"></code><button id="copy">copy</button></div>
 </div>
 
 <header id="chrome" hidden>
@@ -126,7 +147,9 @@
   const wsBase = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
   // The token is the room's key, so it never goes into the URL we dial.
   const wsUrl = wsBase + "/r/" + encodeURIComponent(room);
-  const joinCmd = "npx multiplayer-cli join " + location.href;
+  // Not `npx multiplayer-cli` — that name is not on npm yet, and this is the
+  // one command a teammate is told to copy. It has to run.
+  const joinCmd = "npx github:fathyshalaby/multiplayer-cli join " + location.href;
 
   /* ---- end-to-end encryption -------------------------------------
      Same construction as the terminal client: HKDF over the token keyed by the
@@ -255,6 +278,28 @@
   $("gate-name").value = saved;
   $("gate-name").addEventListener("keydown", (e) => { if (e.key === "Enter") enter(); });
   $("enter").onclick = enter;
+
+  /* Say up front that the browser seat cannot work here, rather than after
+     someone has typed their name and pressed the button.
+
+     A room on a LAN address over plain http is not a secure context, so the
+     browser never exposes the crypto this needs — and that is knowable the
+     moment the page loads. Letting someone commit first and then refusing them
+     is the worst version of a limitation we already accept: most people
+     arriving here were sent a link and cannot tell a secure context from a
+     hole in the ground. Point them at the one path that does work. */
+  if (token && !subtle) {
+    $("enter").disabled = true;
+    $("gate-name").disabled = true;
+    // Otherwise the page promises a browser seat immediately above the notice
+    // explaining that it cannot have one.
+    $("gate-lead").innerHTML = "<b>You will need a terminal for this one.</b>";
+    $("gate-err").innerHTML =
+      "<b>This room needs a terminal.</b> It is end-to-end encrypted, and browsers only " +
+      "expose the encryption over <b>https</b> — this link is plain http, so a seat in this " +
+      "page cannot be secured. Use the command below instead, or ask whoever invited you " +
+      "for an https link.";
+  }
 
   const PALETTE = ["#3d6cd4","#a24fb0","#2f7d4f","#9a6b12","#2b7f95","#b4413a","#6b4fd0","#3f7d2f"];
   let ws = null, me = null, snap = null;

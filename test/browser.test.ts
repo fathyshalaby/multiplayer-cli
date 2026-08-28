@@ -178,8 +178,34 @@ test("clicking the shared link gets you a working seat", async (t) => {
   // The landing page tells a terminal user exactly what to run: the share link
   // itself, so the token stays in the fragment rather than moving to a query.
   const cmd = String(await page.textContent("#cmd"));
-  assert.match(cmd, /^npx multiplayer-cli join http:\/\/127\.0\.0\.1:\d+\/s\/clickable#t=sekrit$/);
+  assert.match(
+    cmd,
+    /^npx github:fathyshalaby\/multiplayer-cli join http:\/\/127\.0\.0\.1:\d+\/s\/clickable#t=sekrit$/,
+    "the copy-paste join command must name something installable — `npx multiplayer-cli` 404s",
+  );
   assert.ok(!cmd.includes("?t="), "never as a query parameter");
+
+  // The invite screen is the whole page: the room chrome underneath it is
+  // `hidden`, and `header`'s `display: flex` used to beat that, so an empty
+  // room header rendered under the invite with a placeholder dash in it.
+  // Passed as a string: this file is compiled without the DOM lib, so an arrow
+  // body referencing `document` would be typechecked against Node's globals.
+  assert.equal(
+    await page.evaluate(`getComputedStyle(document.getElementById("chrome")).display`),
+    "none",
+    "the room chrome must not show through the invite screen",
+  );
+
+  // Most invites are opened on a phone, because the link was pasted into chat.
+  await page.setViewportSize({ width: 390, height: 780 });
+  const overflow = (await page.evaluate(
+    `({ doc: document.documentElement.scrollWidth, view: document.documentElement.clientWidth })`,
+  )) as { doc: number; view: number };
+  assert.ok(
+    overflow.doc <= overflow.view,
+    `the invite must fit a phone without sideways scroll (${overflow.doc} > ${overflow.view})`,
+  );
+  await page.setViewportSize({ width: 1100, height: 700 });
 
   // And offers a seat right there.
   await page.fill("#gate-name", "dana");

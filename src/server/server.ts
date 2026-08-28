@@ -1,11 +1,11 @@
 import { hostname } from "node:os";
-import type { ClientMessage, LaneInfo, Proposal, RoomPolicy, ServerMessage, ToolRequest } from "../protocol.js";
+import type { ClientMessage, LaneInfo, Proposal, RoomPolicy, ServerMessage, ToolRequest, ToolRisk } from "../protocol.js";
 import { CrossroadsStream, type ParsedCrossroads } from "../core/crossroads.js";
 import { PROTOCOL_VERSION, decode, encode } from "../protocol.js";
 import { MAX_LANES, Room } from "../core/room.js";
 import { Transcript } from "../core/transcript.js";
 import { applyOverrides, resolvePreset } from "../core/policy.js";
-import { carriesSession, createBackend, multiplayerSystemPrompt, type BackendName } from "../agent/index.js";
+import { carriesSession, createBackend, multiplayerSystemPrompt, GATES_TOOLS, type BackendName } from "../agent/index.js";
 import type { AgentBackend, TurnResult } from "../agent/types.js";
 import { id } from "../util/id.js";
 import type { Peer, Transport, TransportInfo } from "./transport.js";
@@ -322,12 +322,13 @@ export class RoomServer {
           return;
         }
         joined = true;
-        const isFirst = this.room.list().length === 0;
         // Join first, register the socket after: the newcomer gets a welcome
         // with the room already in it, rather than a notice of their own arrival.
+        // Whether this one ends up hosting is the room's call, not ours — it
+        // knows whether anybody is already doing it.
         const p = this.room.join({
           name: msg.name,
-          role: msg.observer ? "observer" : isFirst ? "owner" : "member",
+          role: msg.observer ? "observer" : "member",
           connectionId,
         });
         this.peers.set(connectionId, secure);
@@ -525,6 +526,15 @@ export class RoomServer {
       },
       onChange: () => this.publishRunners(),
       onNotice: (text) => this.room.notice("warn", text),
+      gatesTools: (backend) => GATES_TOOLS.includes(backend as BackendName),
+      // Only worth saying when the room would actually have voted: a policy
+      // that auto-allows every risk level was never going to stop anything,
+      // so pointing at a weakened gate would be noise.
+      toolsAreGated: () => {
+        const p = this.room.policy;
+        const risks: ToolRisk[] = ["read", "write", "exec"];
+        return p.tool.mode !== "open" && risks.some((r) => !p.autoAllowToolRisks.includes(r));
+      },
     });
     routed.addLocal(this.hostName(), local, this.opts.cwd);
     this.routed = routed;

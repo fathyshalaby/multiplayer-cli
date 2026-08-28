@@ -68,6 +68,27 @@ for (const [rel, want] of versioned) {
   }
 }
 
+/**
+ * The lockfile says the version twice, and npm is the one that writes it.
+ *
+ * It drifted for a whole release: 0.12.0 bumped package.json and the three
+ * files above, and left the lock at 0.11.3. Nothing caught it, because the
+ * mismatch is invisible to `npm ci` — that only refuses on *dependency*
+ * mismatches — and because `npm install` quietly corrects it on any machine
+ * that runs one, then reverts on any machine that does not commit the result.
+ *
+ * So this only ever reports. Rewriting a lockfile by hand is how you get one
+ * that npm disagrees with, and the fix is a command anyone can run.
+ */
+const lockPath = join(root, "package-lock.json");
+const lock = JSON.parse(readFileSync(lockPath, "utf8"));
+const lockVersions = [lock.version, lock.packages?.[""]?.version];
+if (lockVersions.some((v) => v !== version)) {
+  stale.push(
+    `package-lock.json (version ${lockVersions.join(" and ")}, expected ${version}) — run \`npm install\``,
+  );
+}
+
 if (!stale.length) {
   console.log(check ? "integrations are in step" : "integrations synced");
   process.exit(0);

@@ -298,3 +298,78 @@ test("the roster shows whose account is carrying the room", () => {
   assert.equal(roster[1]!.cwd, "/home/bob/repo", "each runner's own directory is visible");
   assert.ok(!("backendRef" in roster[0]!), "the roster never leaks a backend handle");
 });
+
+/* ---- pooling and the tool gate ----------------------------------- */
+
+/**
+ * A runner approves its own tool calls, which is right for a CLI backend (its
+ * own permission system applies and we never see the call) and a real gap on
+ * `anthropic` and `echo` (where the room would have voted, had the turn stayed
+ * on the host). It cannot be closed without carrying approvals back over the
+ * socket, so what it must not do is happen quietly.
+ */
+function gateNotices(opts: { backend: string; gated: boolean }) {
+  const notices: string[] = [];
+  const r = new RoutedBackend({
+    dispatch: { start: () => {}, cancel: () => {} },
+    onChange: () => {},
+    onNotice: (t) => notices.push(t),
+    gatesTools: (b) => b === "anthropic" || b === "echo",
+    toolsAreGated: () => opts.gated,
+  });
+  r.add("seat-1", "bob", opts.backend, "/tmp/bob");
+  return notices;
+}
+
+test("a runner on a gating backend tells the room its tool calls skip the vote", () => {
+  const notices = gateNotices({ backend: "anthropic", gated: true });
+  assert.ok(
+    notices.some((n) => /approve their own tool calls/.test(n)),
+    `the room must be told the gate does not reach this runner; got ${JSON.stringify(notices)}`,
+  );
+});
+
+test("a CLI backend says nothing, because the room never gated its tools anyway", () => {
+  const notices = gateNotices({ backend: "codex", gated: true });
+  assert.ok(
+    !notices.some((n) => /approve their own tool calls/.test(n)),
+    "codex runs its own permission system; warning about it would be noise",
+  );
+});
+
+test("nor does it nag a room that auto-allows everything", () => {
+  const notices = gateNotices({ backend: "anthropic", gated: false });
+  assert.ok(
+    !notices.some((n) => /approve their own tool calls/.test(n)),
+    "a room that votes on no tool call has no gate to weaken",
+  );
+});
+
+/**
+ * The other half of pooling's trust story: results are matched to the runner
+ * that was actually given the turn, so a seat cannot forge model output into
+ * the room — or into the transcript, which is the audit record.
+ */
+test("output from a seat that was not given the turn is ignored", async () => {
+  const seen: string[] = [];
+  const r = new RoutedBackend({
+    dispatch: { start: () => {}, cancel: () => {} },
+    onChange: () => {},
+    onNotice: () => {},
+  });
+  r.add("runner-a", "alice", "codex", "/tmp/a");
+
+  const events: AgentEvents = {
+    onText: (t) => seen.push(t),
+    onThinking: () => {},
+    onToolRequest: async () => ({ allow: true, reason: "" }),
+    onToolResult: () => {},
+    onNotice: () => {},
+  };
+  void r.send("do the thing", events, new AbortController().signal);
+  await new Promise((res) => setTimeout(res, 20));
+
+  r.onOut("runner-b", "turn-1", "text", "forged by a bystander");
+  r.onOut("runner-a", "not-this-turn", "text", "forged with a stale turn id");
+  assert.deepEqual(seen, [], "only the runner holding the turn may speak into it");
+});

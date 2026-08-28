@@ -1,6 +1,6 @@
 import type { ServerMessage } from "../protocol.js";
 import type { AgentBackend } from "../agent/types.js";
-import { createBackend, multiplayerSystemPrompt, type BackendName } from "../agent/index.js";
+import { createBackend, multiplayerSystemPrompt, GATES_TOOLS, type BackendName } from "../agent/index.js";
 import { classify } from "../agent/limits.js";
 import type { Connection } from "./connection.js";
 
@@ -41,6 +41,14 @@ export class LocalRunner {
   offer(): void {
     if (this.registered) return;
     this.registered = true;
+    // Say it on the machine that carries the risk, too: these are the backends
+    // whose tool calls the room would have voted on had the turn stayed home.
+    if (GATES_TOOLS.includes(this.opts.backend)) {
+      this.opts.onNotice(
+        `heads up: turns that land here run ${this.opts.backend}'s tool calls on this machine without a room vote — ` +
+          `the room only votes on tool calls for turns it runs itself`,
+      );
+    }
     this.opts.connection.send({ t: "runner", backend: this.opts.backend, cwd: this.opts.cwd });
   }
 
@@ -103,8 +111,29 @@ export class LocalRunner {
         {
           onText: (text) => conn.send({ t: "runOut", turnId, kind: "text", text }),
           onThinking: (text) => conn.send({ t: "runOut", turnId, kind: "thinking", text }),
-          // Tool approval belongs to whichever tool is running the turn; the
-          // room already voted on the prompt that led here.
+          /**
+           * Auto-approved here, and that is a real gap on two backends.
+           *
+           * For a CLI backend this is simply true: `codex` and `claude` run
+           * their own agent loops and their own permission systems, and we
+           * never see a tool call to put to a vote in the first place. The
+           * room voted on the prompt; the tool's own rules take it from there.
+           *
+           * On `anthropic` and `echo` it is not true. Those are the two where
+           * mpx owns the loop, and where a turn on the *host* would stop
+           * between the model asking for a tool and the tool running, and put
+           * it to the room. A turn on a runner does not: the request never
+           * leaves this machine, so nobody votes on it, and a room set to
+           * `strict` — where nothing at all is auto-allowed — silently gets
+           * something weaker than it asked for.
+           *
+           * Closing it properly means carrying the approval back over the
+           * socket and blocking here until the room answers, which is a
+           * protocol change and needs an answer for a runner that drops
+           * mid-vote. Until then the room and the runner are both told, at
+           * `offer()` below and where the room is notified, rather than the
+           * guarantee quietly not holding.
+           */
           onToolRequest: async () => ({ allow: true, reason: "runner-local policy" }),
           onToolResult: (toolUseId, ok, preview) => conn.send({ t: "runTool", turnId, toolUseId, ok, preview }),
           onNotice: (text) => conn.send({ t: "runNotice", turnId, text }),

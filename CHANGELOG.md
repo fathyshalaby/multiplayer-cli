@@ -1,5 +1,188 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A read-only seat arriving first could leave a room with no host at all.**
+  Ownership was given to whoever joined an *empty* room, which is not the same
+  as whoever joined who could actually hold it: an observer filled the room
+  without becoming host, so the next arrival came in as a plain member and the
+  room had nobody running it — permanently, since ownership was otherwise only
+  reconsidered when someone left.
+
+  On the `host` preset the prompt gate is the owner, so a room in that state
+  could never send anything to the model, and `setPolicy` refused everyone, so
+  nobody could loosen it to escape. The tally read "waiting for the host to
+  reconnect" and waited for a host that had never existed. `mpx serve` plus a
+  `--observer` seat clicking the link first is enough to reach it, and `host`
+  is the preset recommended for demos — where a spectator turning up first is
+  the normal case, not the unlucky one.
+
+  The room now decides: anyone who can vote, arriving when there is no host,
+  becomes one. That covers the empty room, the observer-first room, and a room
+  everyone left and someone re-entered. The room tests had been asking the same
+  wrong question as the server, so they agreed with the bug rather than
+  catching it; they now join the way the server does.
+
+### Security
+
+- **Lane checkouts sat at a path anyone on the machine could claim first.** A
+  race put its worktrees in `/tmp/mpx-lanes/<room>/<turn>`. The turn id is
+  random, but the directories above it were not: another account could create
+  `/tmp/mpx-lanes` as a symlink to somewhere it owned, and every lane of every
+  room would be checked out inside it. `mkdir -p` follows a symlink without
+  complaint, and it only has to be won once.
+
+  A lane checkout is the whole repository, so that is a copy of the source
+  handed over — and it is writable. A lane commits from its checkout and the
+  diff the room votes on is rendered from the same place, so whoever can write
+  there chooses both what the room is shown and what lands when it approves,
+  which `git merge --no-ff` then puts into the real repository. Demonstrated
+  with a planted symlink before the fix and again after.
+
+  Each race now owns one directory directly under the temp directory, named
+  with a random component and created `0700`. There is no shared parent left to
+  claim.
+
+- **The relay accepted a 100 MiB frame from anyone who could connect.** Neither
+  WebSocket server set `maxPayload`, so both took the library default — four
+  orders of magnitude more than a room frame, which is sealed JSON measured in
+  kilobytes. The relay buffers each frame and stringifies it to forward, and at
+  the default limits it accepts 64 rooms of 32 seats, so the memory a stranger
+  could make it spend was bounded only by how many sockets they opened. It is
+  the one component the docs suggest running on a small box for other people.
+  Both the relay and a direct room's listener now cap frames at 8 MiB, and the
+  relay takes `--max-frame` alongside its other limits.
+
+- **The tool gate did not follow a turn onto a pooled runner.** On `anthropic`
+  and `echo` the room votes on the model's tool calls, because those are the
+  two backends where mpx owns the agent loop. A runner runs that loop on its
+  own machine and approved every tool call locally, so a turn routed there
+  executed commands the same turn would have had to put to the room at home.
+  A `strict` room — where nothing is auto-allowed and every command is meant to
+  need unanimity — was quietly getting something weaker than it asked for, and
+  `security.md` said otherwise.
+
+  For a CLI backend there is nothing to fix: `codex` and the rest run their own
+  agent loops and permission systems, and the room never saw those tool calls
+  to vote on. Closing it for the other two means carrying each approval back
+  over the socket and holding the turn until the room answers — a protocol
+  change, and one that needs an answer for a runner that drops mid-vote. So for
+  now it is announced rather than silent: the room is told when such a runner
+  joins, the runner is told on its own machine, and both docs say plainly that
+  the gate describes turns the room runs itself.
+
+- **The transcript was world-readable.** `.mpx/<room>.jsonl` is the room in
+  plain text — every proposal, every veto reason, the chat, and everything the
+  model said, which includes whatever it read out of the repository. It was
+  written at the umask default, so on a dev box, a build agent or a shared jump
+  host every other account could read every session. It is `0600` in a `0700`
+  directory now. Old transcripts on a shared machine want a `chmod 600`.
+- **The link can now come from the environment.** `mpx join <link>` puts the
+  room's key in `argv`, where any other account can read it out of `ps`, and in
+  your shell history afterwards. The token is kept off the wire with real care,
+  so leaving it in the process table was the wrong end to be careless at.
+  `MPX_LINK=… mpx join` avoids both. The argument still wins when both are
+  given, so nothing that works today stops working, and `security.md` now says
+  plainly that a link on a command line is exposed.
+
+- **Tool paths could escape the working directory through a symlink.**
+  `safePath` was a lexical check — `resolve` then `relative` — while its own
+  comment claimed "symlinks included". `resolve` does not follow links, so
+  `sub/link/id_rsa` contained no `..`, was not absolute, and passed; both
+  `read_file` and `write_file` then followed it anywhere on disk. The
+  `search` walker had the same hole by another door, since a symlink is not a
+  directory and fell through to be read.
+
+  This mattered more than a containment bug usually does: `read` is
+  auto-allowed in every preset except `strict`, so the escape was not gated by
+  a vote — in a tool whose entire claim is that the room agrees first. And
+  repositories containing a link out of themselves are ordinary: monorepo
+  package links, a checkout with a link to `$HOME`, fixtures pointing at
+  shared data.
+
+  Both sides are resolved now and re-checked, keeping the unresolved tail so
+  `write_file` can still name a file that does not exist yet, and resolving the
+  room's own cwd too so a room hosted under a symlinked path (`/tmp`, on macOS)
+  still works. Proven against a real symlink before and after.
+- **The editor panel escaped `<` and `>` but not quotes**, and put the result
+  inside double-quoted attributes — so a value containing `"` closed the
+  attribute and the rest parsed as markup, under a CSP that allows inline
+  script. Reaching it needs a hostile or compromised room server, which the
+  threat model already grants a great deal, but script execution in the
+  victim's editor webview is past what that model concedes. The browser seat's
+  escaper had always covered quotes; the two seats disagreed about what was
+  safe, which is the drift the house rule about keeping seats level exists to
+  catch.
+
+Both are regression-tested, and each test was confirmed to fail with its fix
+reverted.
+
+- **The invite screen rendered the empty room underneath itself.** `header` sets
+  `display: flex`, which beats the browser's own `[hidden] { display: none }`, so
+  the room chrome showed through the invite complete with a placeholder dash —
+  on the first thing every invited person sees.
+- **The invite screen did not fit a phone.** `.gate` is a flex item, and the
+  `auto` side margins centring it also cancel the default cross-axis stretch, so
+  it took its 620px max-width whatever the viewport was and a 390px screen lost
+  the right-hand third of every line. Most invites are opened on a phone, since
+  the link was pasted into chat. Both are now regression-tested, and both tests
+  were confirmed to fail with the fix removed.
+- **A room that cannot offer a browser seat now says so before you commit.** On a
+  LAN address over plain http there is no secure context, so the browser never
+  exposes the encryption a room needs — but the check ran inside the join
+  handler, so you typed your name, pressed the button, and only then were told.
+  It runs on load now: the button is disabled, the heading stops promising a
+  seat, and the terminal command below it is the one path that works.
+
+- **A guide for the people who did not start the session.** Every page was
+  written for the host, but most people in a room are the ones who were sent a
+  link — and plenty of them are not programmers.
+  [Someone sent you a link](./docs/joining.md) assumes nothing technical: what
+  this is, click the link, type your name, what the buttons do, and the
+  questions people actually ask — does it cost me anything, can I break
+  something, can everyone see what I type.
+- **The join page led with a shell command.** Anyone opening an invite met "in
+  your terminal — the full experience" first, and the button they could actually
+  use second. For the non-technical half of a room that is asking them to scroll
+  past something they cannot use. The browser seat is now the headline and the
+  terminal command is the alternative.
+- The docs index, the README and the landing page all open by asking who you
+  are and pointing invited people somewhere that assumes nothing.
+
+- **The install command did not work.** `npm install -g multiplayer-cli` was the
+  first line of the README, of getting-started, of the skill, of both Gemini
+  commands — and of the join command the browser seat tells a teammate to copy.
+  The package has never been published, so every one of them 404s. The landing
+  page was fixed for exactly this in 0.12.0 and nothing else was. Everywhere now
+  leads with `npx github:fathyshalaby/multiplayer-cli`, which runs today, and
+  names the npm form as the one that will work once it is published.
+- **A documentation index, with a glossary.** `docs/` was thirteen files in a
+  flat list, and understanding a room meant holding room, seat, gate, proposal,
+  lane, crossroads, relay and runner in your head before page two.
+  [`docs/README.md`](./docs/README.md) defines the six words that carry most of
+  it, orders the pages into a path, and answers the questions people actually
+  arrive with — does everyone need a key, does everyone need to install it, what
+  does it cost to try.
+- **Every doc rewritten plainer.** Summary tables up top, the reference material
+  kept, and the longer asides moved below the part you need. `getting-started`
+  is numbered steps and now shows the five commands that cover a session instead
+  of all twenty-two, with the full list behind a fold. `relay` opens with a table
+  that picks the option for you. `security` opens with a six-row summary of what
+  is and is not protected. Every page links back to the index instead of being a
+  dead end.
+- **The README and the landing page lead with the plain version.** What it is,
+  who runs what, and what it costs to try — before any of the vocabulary. The
+  landing page gains a three-step strip under the recording.
+- The lockfile version is checked. It said 0.11.3 while the manifest said
+  0.12.0, which `npm ci` does not catch and `npm install` silently corrects, so
+  it survived a whole release. `npm run sync -- --check` now reports it.
+- `CLAUDE.md` documents the repository for AI assistants: the module map, what a
+  turn does end to end, the conventions that are load-bearing, and what each
+  test file covers.
+- The README said 192 tests. There are 302.
+
 ## 0.12.0
 
 - **It installs into the agent CLIs, not just beside them.** The repository is

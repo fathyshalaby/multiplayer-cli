@@ -5,7 +5,8 @@ Join the multiplayer session the user was invited to.
 
 Run `mpx join {{args}}` with the link exactly as they were given it — the part
 after `#` is the room key and must survive verbatim. If `mpx` is not installed,
-install it with `npm install -g multiplayer-cli`.
+run `npx github:fathyshalaby/multiplayer-cli join {{args}}` instead — the package
+is not on npm yet, so that is the form that works today.
 
 Add `--observer` if they said they only want to watch.
 

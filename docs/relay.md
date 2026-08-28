@@ -1,7 +1,17 @@
 # Reaching your team
 
-`mpx share` binds to your local network, so anyone on the same wifi or VPN can
-open the link. Three ways to change that.
+By default `mpx share` binds to your local network, so anyone on the same wifi
+or VPN can open the link. If that is not enough, there are three other options.
+
+## Which one do I need?
+
+| Your situation | Use |
+|---|---|
+| Everyone is on the same wifi or VPN | nothing — this is the default |
+| Just trying it out on your own machine | `--local` |
+| People are in different places, and you want it to just work | **a relay** |
+| You already have a jumpbox, Tailscale or ngrok | an SSH tunnel |
+| A throwaway room on a network you fully trust | `--open` (no encryption) |
 
 ## This machine only
 
@@ -9,29 +19,27 @@ open the link. Three ways to change that.
 mpx share --local
 ```
 
-The link then works only on your own machine — useful for trying things out, or
-paired with a tunnel you set up yourself.
+The link works only on your own machine. Useful for trying things out, or paired
+with a tunnel you set up yourself.
 
 ## Anywhere, through a relay
 
-The host dials **out** to a relay, so there is nothing to open or forward on
-your side and no inbound port anywhere.
+The host dials **out** to a relay, so there is nothing to open or forward on your
+side and no inbound port anywhere.
 
 ```bash
 mpx relay --port 7788                       # once, on any box your team can reach
 mpx share --relay wss://relay.example.com   # on the host — remembered from then on
 ```
 
-A small VPS is plenty. `mpx relay` also serves the browser seat, so the link a
-relayed room prints is clickable in exactly the same way.
+A small VPS is plenty. `mpx relay` also serves the browser seat, so a relayed
+room's link is clickable in exactly the same way.
 
 ### What the relay can and cannot see
 
 It is a dumb pipe. It multiplexes teammates onto the one connection the host
-dialled out on, and that is all.
-
-Room traffic is sealed end-to-end with the room token *before* it reaches the
-relay, so what passes through is ciphertext with a channel number attached.
+dialled out on, and that is all. Room traffic is sealed end-to-end *before* it
+reaches the relay, so what passes through is ciphertext with a channel number.
 
 - It **never receives the token** — there is none on the wire to receive.
 - It **cannot read a session**, only move it.
@@ -45,9 +53,9 @@ your own costs you a box.
 
 ### Give it a certificate
 
-Metadata is the reason, and the browser seat is the bigger one: browsers only
-expose the cryptography for end-to-end encryption in a secure context, so a
-browser seat needs `https`.
+Two reasons. Metadata is one. The bigger one is that browsers only expose the
+cryptography for end-to-end encryption in a secure context, so **a browser seat
+needs `https`**.
 
 ```bash
 mpx relay --port 443 --tls-cert /etc/letsencrypt/live/relay.example.com/fullchain.pem \
@@ -85,7 +93,8 @@ WantedBy=multi-user.target
 
 ```dockerfile
 FROM node:22-alpine
-RUN npm install -g multiplayer-cli
+# Not on npm yet; install straight from the repo.
+RUN npm install -g github:fathyshalaby/multiplayer-cli
 USER node
 EXPOSE 7788
 ENTRYPOINT ["mpx", "relay", "--port", "7788", "--host", "0.0.0.0"]
@@ -93,6 +102,13 @@ ENTRYPOINT ["mpx", "relay", "--port", "7788", "--host", "0.0.0.0"]
 
 The relay holds no state worth backing up: rooms live only as long as their
 hosts are connected.
+
+It enforces `--max-rooms`, `--max-peers` per room, `--joins-per-minute`, and
+`--max-frame` (8 MiB, against a room frame measured in kilobytes — the
+underlying library would otherwise accept 100 MiB from anyone who connects).
+Since it cannot authenticate a joiner, it rate-limits what it cannot check and
+lets the host reject the rest; a socket that connects and says nothing is
+dropped after ten seconds.
 
 ### Seeing what is running
 
@@ -112,11 +128,6 @@ Off by default, because a room name is metadata: a relay that lists them tells
 anyone who asks what your team is working on. Knowing a name grants nothing —
 the host still has to be satisfied — but it is a disclosure, so it is a choice.
 
-Limits it enforces on its own: `--max-rooms`, `--max-peers` per room, and
-`--joins-per-minute`. Since it cannot authenticate a joiner, it rate-limits what
-it cannot check and lets the host reject the rest; a socket that connects and
-says nothing is dropped after ten seconds.
-
 ## An SSH tunnel
 
 If you would rather run nothing:
@@ -134,8 +145,11 @@ Tailscale, ngrok and friends work the same way.
 mpx share --open
 ```
 
-No token means **no key**, which means no encryption. Anyone who can reach the
-port may join, and anyone on the path can read the session. `mpx join` refuses
-to connect to an open room at a non-local address unless you pass `--insecure`.
+No token means **no key**, which means **no encryption**. Anyone who can reach
+the port may join, and anyone on the path can read the session. `mpx join`
+refuses to connect to an open room at a non-local address unless you pass
+`--insecure`.
 
-Fine on a trusted LAN for five minutes; not something to leave running.
+---
+
+[← All documentation](./README.md)

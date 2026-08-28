@@ -1,5 +1,7 @@
 # The editor seat
 
+*The VS Code / Cursor extension: the same seat as a terminal, in a panel.*
+
 A room has three kinds of seat: a terminal (`mpx join`), a browser (open the
 link), and an editor. They are the same participant to the room — same protocol,
 same encryption, same votes.
@@ -77,3 +79,7 @@ the only way to catch a module that throws on import.
 - **Hosting needs an open folder**, since a session needs a working directory.
 - **Racing needs that folder to be a git repository**, since lanes are branches.
   The room says so rather than failing when somebody types `/race`.
+
+---
+
+[← All documentation](./README.md)

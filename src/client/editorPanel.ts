@@ -102,7 +102,13 @@ export function panelHtml(): string {
   const vscode = acquireVsCodeApi();
   const $ = (id) => document.getElementById(id);
   const PALETTE = ["#4a8cf7","#b06ac9","#3f9d63","#c08a2e","#2f93a8","#c4534b","#7b5fd6","#4f8f3a"];
-  const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  // Quotes matter here, not just angle brackets: this output goes into
+  // double-quoted attributes (data-yes, data-no), where an unescaped " closes
+  // the attribute and everything after it is parsed as markup. The browser
+  // seat's esc() has always covered them; this one did not, and the two seats
+  // rendering the same room disagreed about what was safe.
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const color = (i) => PALETTE[(i || 0) % PALETTE.length];
 
   for (const [id, type] of [["b-share","share"],["b-join","join"],["b-copy","copy"],["b-leave","leave"]]) {
