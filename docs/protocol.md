@@ -1,5 +1,7 @@
 # Protocol
 
+*The wire format, for writing your own client. Reference material — you do not need this to use a room.*
+
 Everything is newline-free JSON frames over one WebSocket. `src/protocol.ts` is
 the authority; this page is the map. Current version: **5** (`PROTOCOL_VERSION`).
 
@@ -160,3 +162,7 @@ interface Tally {
 The audit log is the same `ServerMessage` values, one per line, wrapped as
 `{"at": <ms>, "msg": {...}}`. Streamed text is coalesced to one entry per turn.
 `presence` and `pong` are not recorded.
+
+---
+
+[← All documentation](./README.md)

@@ -1,8 +1,12 @@
 # The terminal seat
 
-`mpx share` and `mpx join` open a full-screen seat: the model's reply on the
-left, and everything that is *standing information* — who is here, what is
-waiting on your vote, how the lanes are doing — in a pane beside it.
+What `mpx share` and `mpx join` put on your screen.
+
+## The layout
+
+A full-screen seat: the model's reply on the left, and everything you need to
+keep an eye on — who is here, what is waiting on your vote, how the lanes are
+doing — in a pane beside it.
 
 ```
  amber-ridge  ·  claude-code/opus  ·  majority+veto 45s        3 seats · encrypted
@@ -26,9 +30,9 @@ waiting on your vote, how the lanes are doing — in a pane beside it.
  1 awaiting a decision                                                    7 turns
 ```
 
-The reason for panes is racing. A room used to be one conversation in one
-column; a race is several agents working at once, and "which lane is winning"
-is not something that should scroll away under the model's next paragraph.
+The sidebar exists because of racing. A room used to be one conversation in one
+column, but a race is several agents working at once, and "which lane is
+winning" should not scroll away under the model's next paragraph.
 
 ## Keys
 
@@ -46,11 +50,13 @@ is not something that should scroll away under the model's next paragraph.
 The input line scrolls under a fixed prompt rather than wrapping, so a long
 proposal never pushes the transcript around while you are still writing it.
 
-## When it uses one column instead
+## The one-column mode
 
-The plain seat — one scrolling column above a prompt — is not a lesser
-fallback. It is the right thing in a pipe, in CI, in a narrow pane, and in any
-terminal that will not do alternate screens. It is chosen automatically when:
+There is a plain seat too — one scrolling column above a prompt. It is not a
+lesser fallback; it is the right thing in a pipe, in CI, in a narrow pane, and
+in any terminal that will not do alternate screens.
+
+It is chosen automatically when:
 
 - stdin or stdout is not a terminal (piped, redirected, or under CI),
 - `TERM=dumb`,
@@ -62,12 +68,17 @@ mpx share --plain
 mpx join <link> --plain
 ```
 
-Below 84 columns the sidebar is dropped and the transcript takes the whole
-width; open votes still appear in the transcript, as they do in the plain seat.
+Between 60 and 84 columns the sidebar is dropped and the transcript takes the
+whole width. Open votes still appear inline, as they do in the plain seat, so
+nothing becomes unreachable on a narrow terminal.
 
-## How it is put together
+---
 
-Four pieces, only one of which needs a terminal:
+## How it is built
+
+*You only need this section if you are changing the terminal UI.*
+
+Five pieces, only one of which needs a terminal:
 
 | | |
 |---|---|
@@ -77,32 +88,34 @@ Four pieces, only one of which needs a terminal:
 | `src/client/screen.ts` | writes a frame, rewriting only the lines that changed |
 | `src/client/fullscreen.ts` | the wiring, and the only part that needs a real terminal |
 
-Splitting it this way is what makes terminal layout testable at all: the tests
+Splitting it this way is what makes terminal layout testable at all. The tests
 hand `layout` a room and read the strings back, and hand `editor` keys and read
 the buffer back. A frame is exactly `rows` lines of exactly `cols` visible
-columns — measured ignoring escape sequences — so the assertions can be
-precise rather than approximate.
+columns — measured ignoring escape sequences — so assertions can be precise
+rather than approximate.
 
-`screen` keeps the previous frame and sends only the differences. A full
-repaint on every keystroke is what makes a terminal UI flicker, and what makes
-it unusable over ssh; typing one character costs a few dozen bytes instead of a
-few kilobytes.
+`screen` keeps the previous frame and sends only the differences. A full repaint
+on every keystroke is what makes a terminal UI flicker, and what makes it
+unusable over ssh; typing one character costs a few dozen bytes instead of a few
+kilobytes.
 
 ## The recording in the README
 
-`./scripts/record-demo.sh` drives the real binary in a real terminal, types
-real commands into it, and renders whatever came back to
-`docs/media/session.svg`. Nobody draws the demo, so the picture cannot quietly
-stop matching the tool.
+`./scripts/record-demo.sh` drives the real binary in a real terminal, types real
+commands into it, and renders whatever came back to `docs/media/session.svg`.
+Nobody draws the demo, so the picture cannot quietly stop matching the tool.
 
-It needs `script` (util-linux) for the pty. Two things in there are worth
-knowing if you touch it:
+It needs `script` (util-linux) for the pty. Two things are worth knowing if you
+touch it:
 
 - **The timing log counts bytes, and the stream is UTF-8.** Slicing the decoded
   string instead drifts the moment a box-drawing character appears, which is
   immediately, and every chunk after that is nonsense.
 - **Frame boundaries come from the stream, not the timing.** `script` buffers
   its own reads, so its chunks have nothing to do with the app's writes. A
-  completed repaint ends by parking the cursor and showing it; sampling
-  anywhere else catches a half-updated screen, which shows up as duplicated
-  lines.
+  completed repaint ends by parking the cursor and showing it; sampling anywhere
+  else catches a half-updated screen, which shows up as duplicated lines.
+
+---
+
+[← All documentation](./README.md)

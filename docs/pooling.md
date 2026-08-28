@@ -1,5 +1,7 @@
 # Account pooling &nbsp;·&nbsp; experimental
 
+*Spreading turns across several people's accounts, so one usage limit does not stop the room.*
+
 **Off by default, and the default is the one to reach for first.** Every turn
 runs on the host's account, on the host's machine. That is one account, one
 place the tools act, and it is what most rooms want.
@@ -64,3 +66,7 @@ entirely. Each runner's working directory is shown in `/who` and `/status` so
 this is visible, but it is a difference you have to actually want.
 
 If either of those is not acceptable for what you are doing, leave pooling off.
+
+---
+
+[← All documentation](./README.md)

@@ -126,7 +126,9 @@
   const wsBase = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
   // The token is the room's key, so it never goes into the URL we dial.
   const wsUrl = wsBase + "/r/" + encodeURIComponent(room);
-  const joinCmd = "npx multiplayer-cli join " + location.href;
+  // Not `npx multiplayer-cli` — that name is not on npm yet, and this is the
+  // one command a teammate is told to copy. It has to run.
+  const joinCmd = "npx github:fathyshalaby/multiplayer-cli join " + location.href;
 
   /* ---- end-to-end encryption -------------------------------------
      Same construction as the terminal client: HKDF over the token keyed by the

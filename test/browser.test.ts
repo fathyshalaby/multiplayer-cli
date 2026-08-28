@@ -178,7 +178,11 @@ test("clicking the shared link gets you a working seat", async (t) => {
   // The landing page tells a terminal user exactly what to run: the share link
   // itself, so the token stays in the fragment rather than moving to a query.
   const cmd = String(await page.textContent("#cmd"));
-  assert.match(cmd, /^npx multiplayer-cli join http:\/\/127\.0\.0\.1:\d+\/s\/clickable#t=sekrit$/);
+  assert.match(
+    cmd,
+    /^npx github:fathyshalaby\/multiplayer-cli join http:\/\/127\.0\.0\.1:\d+\/s\/clickable#t=sekrit$/,
+    "the copy-paste join command must name something installable — `npx multiplayer-cli` 404s",
+  );
   assert.ok(!cmd.includes("?t="), "never as a query parameter");
 
   // And offers a seat right there.

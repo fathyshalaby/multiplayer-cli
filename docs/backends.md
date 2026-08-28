@@ -1,50 +1,82 @@
 # Backends
 
-A backend is the AI that a room's session runs on. Bring whichever coding CLI
-your team already uses — the room's job is the same in every case.
+A backend is the AI that actually runs the session. Bring whichever coding CLI
+your team already pays for — the room behaves the same either way.
 
 ```bash
 mpx backends     # what you have installed, and what `mpx share` would pick
 ```
 
-| `--backend` | Session model | Streaming | Room votes on tool calls |
-|---|---|---|---|
-| `anthropic` | a Claude conversation owned by the room | per-token | **yes** |
-| `claude-code` | one long-lived `claude` process | per-token | no |
-| `codex` | `codex exec --json`, resuming the thread each turn | per item | no |
-| `copilot` | `copilot -p` | raw stdout | no |
-| `opencode` | `opencode run` | raw stdout | no |
-| `opencode-json` | the same with `--format json` | per event | no |
-| `gemini` | `gemini -p` | raw stdout | no |
-| `cursor` | `cursor-agent -p` | raw stdout | no |
-| `aider` | `aider --message --yes-always` | raw stdout | no |
-| `amp` | `amp -x` | raw stdout | no |
-| `echo` | offline stand-in — no key, no spend | per-token | **yes** |
+With no `--backend`, `mpx share` picks the first CLI it finds on your PATH,
+falls back to `ANTHROPIC_API_KEY`, and finally to the offline `echo` stand-in.
+You usually do not need to choose.
 
-### Not every CLI can carry a session
+## What you can use
+
+| `--backend` | Runs | Room votes on tool calls |
+|---|---|---|
+| `claude-code` | one long-lived `claude` process | no |
+| `codex` | `codex exec --json` | no |
+| `copilot` | `copilot -p` | no |
+| `opencode` | `opencode run` | no |
+| `opencode-json` | the same with `--format json` | no |
+| `gemini` | `gemini -p` | no |
+| `cursor` | `cursor-agent -p` | no |
+| `aider` | `aider --message --yes-always` | no |
+| `amp` | `amp -x` | no |
+| `anthropic` | Claude via the API, owned by the room | **yes** |
+| `echo` | offline stand-in — no key, no spend | **yes** |
+
+## The one limitation worth knowing
+
+Every backend gates what the room **sends**. Only `anthropic` and `echo` also
+put the model's own **tool calls** to a vote.
+
+The reason is structural: those are the two where mpx owns the agent loop and
+can pause between the model asking for a tool and the tool running. The other
+CLIs run their own loops and never ask us, so **their** permission systems apply
+instead. Set those explicitly rather than trusting the default:
+
+```bash
+mpx share --backend claude-code --permission-mode acceptEdits
+mpx share --backend codex   --backend-arg --sandbox --backend-arg workspace-write
+mpx share --backend copilot --backend-arg --deny-tool --backend-arg shell
+```
+
+## Not every CLI can carry a conversation
 
 `claude-code`, `codex` and `opencode-json` report a session or thread id, so mpx
-captures it and resumes the same conversation every turn. The plain-text ones
-have no id to capture: each turn starts the tool fresh. The room is still one
-conversation to the people in it, but not to the model.
+captures it and resumes the same conversation every turn.
 
-A room says so at the start rather than letting you find out:
+The plain-text ones have no id to capture, so each turn starts the tool fresh.
+The room is still one conversation to the people in it, but not to the model.
+A room says so at the start rather than letting you discover it:
 
 ```
   · aider starts a fresh session each turn — it cannot carry the conversation between them
 ```
 
-`cursor` accepts `--resume <id>` if you have one to give it.
+To continue a session that already exists:
 
-With no `--backend`, `mpx share` picks whichever CLI it finds on your PATH, in
-that order, falling back to `ANTHROPIC_API_KEY` and then to `echo`.
+```bash
+mpx share --backend claude-code --resume 8f3a…      # a Claude Code session
+mpx share --backend codex       --resume th_abc123  # a Codex thread
+```
 
-### `anthropic` needs one extra package
+OpenCode's server already accepts several clients on one session, so a room can
+sit on top of it rather than starting a rival one:
 
-Every other backend runs on a coding CLI you are already signed into, so
-nothing else is needed. The `anthropic` backend talks to the API directly, and
-its SDK is 12MB — too much to put in front of every install for the one backend
-most rooms never use. It is an optional peer dependency:
+```bash
+opencode serve --port 4096
+mpx share --backend opencode --attach http://localhost:4096
+```
+
+## `anthropic` needs one extra package
+
+Every other backend runs on a CLI you are already signed into. The `anthropic`
+backend talks to the API directly, and its SDK is 12MB — too much to put in
+front of every install for the one backend most rooms never use. So it is
+optional:
 
 ```bash
 npm install -g @anthropic-ai/sdk
@@ -54,25 +86,10 @@ Selecting `--backend anthropic` without it gives you that command rather than a
 stack trace. The editor extension does not bundle it at all, and does not offer
 the backend.
 
-## The one limitation worth knowing
+## When a CLI changes its flags
 
-Every backend gates what the room **sends**. Only `anthropic` and `echo` also
-put the model's own **tool calls** to a vote, because those are the two where
-mpx owns the agent loop and can pause between `tool_use` and execution.
-
-The other CLIs run their own loops and never ask us, so their own permission
-systems apply. Pair them with the flags they already have:
-
-```bash
-mpx share --backend claude-code --permission-mode acceptEdits
-mpx share --backend codex   --backend-arg --sandbox --backend-arg workspace-write
-mpx share --backend copilot --backend-arg --deny-tool --backend-arg shell
-```
-
-## These CLIs move fast
-
-Flags change between releases. Two escape hatches mean a drifted tool is a
-command-line fix, not a version bump here:
+These tools move fast, and a flag that drifted should be a command-line fix
+rather than something you wait on a release here for:
 
 ```bash
 mpx share --backend codex \
@@ -84,28 +101,9 @@ mpx share --backend codex \
 - `--backend-arg` is repeatable and appended **last**, so it overrides whatever
   the built-in profile constructed.
 
-## Pointing at a session that already exists
-
-```bash
-mpx share --backend claude-code --resume 8f3a…      # a Claude Code session
-mpx share --backend codex       --resume th_abc123  # a Codex thread
-```
-
-`--resume` takes whatever that tool calls a session or thread id. mpx also
-captures the id from the first turn and reuses it on every turn after, so a
-room is one conversation rather than a series of unrelated ones.
-
-OpenCode's server already accepts several clients on one session, so a room can
-sit on top of it rather than starting a rival one:
-
-```bash
-opencode serve --port 4096
-mpx share --backend opencode --attach http://localhost:4096
-```
-
 ## Adding another CLI
 
-A backend is a *profile*, not a class — `src/agent/profiles.ts`:
+A backend is a *profile*, not a class. Add one to `src/agent/profiles.ts`:
 
 ```ts
 export const yourtool: CliProfile = {
@@ -130,4 +128,8 @@ export const yourtool: CliProfile = {
 
 `ProcessBackend` handles spawning, streaming, interrupts, exit codes and error
 reporting. Profiles are tested against stub binaries that emit exactly what the
-real tool documents, so a new one can be covered without installing it.
+real tool documents, so you can cover a new one without installing it.
+
+---
+
+[← All documentation](./README.md)

@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+- **The install command did not work.** `npm install -g multiplayer-cli` was the
+  first line of the README, of getting-started, of the skill, of both Gemini
+  commands — and of the join command the browser seat tells a teammate to copy.
+  The package has never been published, so every one of them 404s. The landing
+  page was fixed for exactly this in 0.12.0 and nothing else was. Everywhere now
+  leads with `npx github:fathyshalaby/multiplayer-cli`, which runs today, and
+  names the npm form as the one that will work once it is published.
+- **A documentation index, with a glossary.** `docs/` was thirteen files in a
+  flat list, and understanding a room meant holding room, seat, gate, proposal,
+  lane, crossroads, relay and runner in your head before page two.
+  [`docs/README.md`](./docs/README.md) defines the six words that carry most of
+  it, orders the pages into a path, and answers the questions people actually
+  arrive with — does everyone need a key, does everyone need to install it, what
+  does it cost to try.
+- **Every doc rewritten plainer.** Summary tables up top, the reference material
+  kept, and the longer asides moved below the part you need. `getting-started`
+  is numbered steps and now shows the five commands that cover a session instead
+  of all twenty-two, with the full list behind a fold. `relay` opens with a table
+  that picks the option for you. `security` opens with a six-row summary of what
+  is and is not protected. Every page links back to the index instead of being a
+  dead end.
+- **The README and the landing page lead with the plain version.** What it is,
+  who runs what, and what it costs to try — before any of the vocabulary. The
+  landing page gains a three-step strip under the recording.
+- The lockfile version is checked. It said 0.11.3 while the manifest said
+  0.12.0, which `npm ci` does not catch and `npm install` silently corrects, so
+  it survived a whole release. `npm run sync -- --check` now reports it.
+- `CLAUDE.md` documents the repository for AI assistants: the module map, what a
+  turn does end to end, the conventions that are load-bearing, and what each
+  test file covers.
+- The README said 192 tests. There are 302.
+
 ## 0.12.0
 
 - **It installs into the agent CLIs, not just beside them.** The repository is

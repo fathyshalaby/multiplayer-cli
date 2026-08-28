@@ -4,8 +4,9 @@ prompt = """
 Start a multiplayer room for this folder using `multiplayer-cli`, then hand the
 user the invite link.
 
-Run `mpx share --backend gemini{{args}}`. If `mpx` is not installed, install it
-first with `npm install -g multiplayer-cli`.
+Run `mpx share --backend gemini{{args}}`. If `mpx` is not installed, run
+`npx github:fathyshalaby/multiplayer-cli share --backend gemini{{args}}` instead
+— the package is not on npm yet, so that is the form that works today.
 
 Give the user the link **verbatim**. Do not shorten it, do not rewrite it, and
 do not paste it anywhere yourself — the fragment after `#` is the key to the

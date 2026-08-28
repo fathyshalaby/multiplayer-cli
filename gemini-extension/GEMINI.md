@@ -14,8 +14,17 @@ mpx share
 ```
 
 That is the whole thing. It picks whichever coding CLI is already installed,
-starts a room, and prints a link. If `mpx` is missing, install it first with
-`npm install -g multiplayer-cli`.
+starts a room, and prints a link.
+
+If `mpx` is missing, run it straight from the repo instead — the package is not
+on npm yet, so this is the form that works today:
+
+```bash
+npx github:fathyshalaby/multiplayer-cli share
+```
+
+Once it is published, `npm install -g multiplayer-cli` will put `mpx` on the
+PATH.
 
 Then **give the user the link verbatim** and tell them to paste it wherever
 their team is. Do not shorten it, and do not paste it anywhere yourself — the
