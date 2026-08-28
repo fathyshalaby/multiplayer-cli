@@ -50,7 +50,12 @@ tool calls still do not, so a lone operator is still asked before a shell
 command runs.
 
 **Observers do not count.** They cannot propose, cannot vote, and are not part
-of the electorate.
+of the electorate — nor can one ever end up hosting the room.
+
+**Somebody is always the host.** The first person who can vote takes the room,
+and if they leave it passes to whoever has been there longest. An observer
+arriving before anyone else does not take it, and does not stop the next
+arrival from taking it.
 
 ## Modes
 

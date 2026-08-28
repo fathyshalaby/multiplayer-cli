@@ -322,12 +322,13 @@ export class RoomServer {
           return;
         }
         joined = true;
-        const isFirst = this.room.list().length === 0;
         // Join first, register the socket after: the newcomer gets a welcome
         // with the room already in it, rather than a notice of their own arrival.
+        // Whether this one ends up hosting is the room's call, not ours — it
+        // knows whether anybody is already doing it.
         const p = this.room.join({
           name: msg.name,
-          role: msg.observer ? "observer" : isFirst ? "owner" : "member",
+          role: msg.observer ? "observer" : "member",
           connectionId,
         });
         this.peers.set(connectionId, secure);

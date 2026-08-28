@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A read-only seat arriving first could leave a room with no host at all.**
+  Ownership was given to whoever joined an *empty* room, which is not the same
+  as whoever joined who could actually hold it: an observer filled the room
+  without becoming host, so the next arrival came in as a plain member and the
+  room had nobody running it — permanently, since ownership was otherwise only
+  reconsidered when someone left.
+
+  On the `host` preset the prompt gate is the owner, so a room in that state
+  could never send anything to the model, and `setPolicy` refused everyone, so
+  nobody could loosen it to escape. The tally read "waiting for the host to
+  reconnect" and waited for a host that had never existed. `mpx serve` plus a
+  `--observer` seat clicking the link first is enough to reach it, and `host`
+  is the preset recommended for demos — where a spectator turning up first is
+  the normal case, not the unlucky one.
+
+  The room now decides: anyone who can vote, arriving when there is no host,
+  becomes one. That covers the empty room, the observer-first room, and a room
+  everyone left and someone re-entered. The room tests had been asking the same
+  wrong question as the server, so they agreed with the bug rather than
+  catching it; they now join the way the server does.
+
 ### Security
 
 - **The relay accepted a 100 MiB frame from anyone who could connect.** Neither

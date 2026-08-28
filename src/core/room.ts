@@ -114,11 +114,33 @@ export class Room extends EventEmitter {
 
   join(req: JoinRequest): Participant {
     const name = this.uniqueName(req.name);
+    /**
+     * Anyone who can vote, arriving at a room with nobody to run it, runs it.
+     *
+     * The caller used to decide this by asking whether the room was empty,
+     * which is not the same question: an observer joining first filled the room
+     * without being able to own it, so the next arrival came in as a plain
+     * member and the room had no host at all — for good, since ownership was
+     * only ever reconsidered when someone *left*.
+     *
+     * That is worse than an administrative inconvenience. On the `host` preset
+     * the prompt gate is the owner, so a room in that state can never send
+     * anything to the model, and `setPolicy` refuses everyone, so nobody can
+     * loosen it either. The tally says "waiting for the host to reconnect" and
+     * waits for a host that never existed. `mpx serve` plus a read-only seat
+     * clicking the link first is enough to get there, and `--policy host` is
+     * the preset for demos, which is exactly where a spectator turns up first.
+     *
+     * Asking whether the room currently has an owner covers the empty room,
+     * the observer-first room, and a room everyone left and someone re-entered,
+     * with one rule instead of three.
+     */
+    const role: Role = req.role !== "observer" && this.ownerId === null ? "owner" : req.role;
     const p: Participant = {
       id: req.connectionId,
       name,
       color: this.colorSeq++,
-      role: req.role,
+      role,
       joinedAt: this.now(),
       connected: true,
       typing: false,

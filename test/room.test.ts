@@ -12,8 +12,18 @@ function makeRoom(preset = "team", overrides: Partial<ReturnType<typeof resolveP
   return { room, sent };
 }
 
+/**
+ * Joins the way the server does: it asks for a member (or an observer) and
+ * lets the room decide who hosts. The old helper worked out the role itself,
+ * with the same "is the room empty" test the server used — so the tests agreed
+ * with the bug instead of catching it.
+ */
 function seat(room: Room, name: string) {
-  return room.join({ name, role: room.list().length === 0 ? "owner" : "member", connectionId: name });
+  return room.join({ name, role: "member", connectionId: name });
+}
+
+function watcher(room: Room, name: string) {
+  return room.join({ name, role: "observer", connectionId: name });
 }
 
 test("the first person in becomes the host", () => {
@@ -271,4 +281,58 @@ test("closing the room cancels its timers", () => {
   // No assertion beyond "this does not throw and leaves nothing scheduled";
   // an un-cleared timer would keep the process alive and hang the test run.
   assert.ok(true);
+});
+
+
+/* ---- who ends up running the room -------------------------------- */
+
+/**
+ * An observer joining an empty room used to fill it without being able to own
+ * it, so the next arrival came in as a plain member and the room had no host —
+ * permanently, because ownership was only reconsidered when someone left.
+ *
+ * On the `host` preset the prompt gate *is* the owner, so such a room can never
+ * send anything, and `setPolicy` refuses everyone, so nobody can loosen it.
+ * `mpx serve` plus a read-only seat clicking first gets you there, and `host`
+ * is the preset for demos — where a spectator arriving first is the norm.
+ */
+test("an observer arriving first does not leave the room without a host", () => {
+  const { room } = makeRoom("host");
+  const w = watcher(room, "watcher");
+  assert.equal(w.role, "observer", "an observer must stay one");
+
+  const alice = seat(room, "alice");
+  assert.equal(alice.role, "owner", "the first person who can vote takes the room");
+
+  const bob = seat(room, "bob");
+  assert.equal(bob.role, "member");
+  assert.equal(room.setPolicy(alice.id, resolvePreset("team")!), null, "the host can set policy");
+});
+
+test("an owner-gated room with no host would otherwise never resolve anything", () => {
+  const { room } = makeRoom("host");
+  watcher(room, "watcher");
+  const alice = seat(room, "alice");
+  const bob = seat(room, "bob");
+
+  const prop = room.propose(bob.id, "please do the thing") as Proposal;
+  // Two voters, so soloBypass does not paper over it: on `host` the owner's
+  // yes is the only thing that can approve, and there has to be an owner.
+  assert.equal(room.vote(alice.id, prop.id, "yes"), null);
+  assert.equal(room.get(alice.id)!.role, "owner");
+  assert.equal(prop.status, "approved", `the host's approval must land; got ${prop.status}`);
+});
+
+test("the room is handed on when the host leaves, and reclaimed if all of them go", () => {
+  const { room } = makeRoom();
+  const alice = seat(room, "alice");
+  const bob = seat(room, "bob");
+  assert.equal(alice.role, "owner");
+
+  room.leave(alice.id);
+  assert.equal(room.get(bob.id)!.role, "owner", "the longest-present seat takes over");
+
+  room.leave(bob.id);
+  const carol = seat(room, "carol");
+  assert.equal(carol.role, "owner", "someone arriving at an empty room hosts it");
 });
