@@ -235,7 +235,7 @@ It starts the room and hands you the link to paste. See
 ```bash
 npm install
 npm run build
-npm test          # 302 tests, no API key and no coding CLI required
+npm test          # 317 tests, no API key and no coding CLI required
 ```
 
 The layout follows the seams:

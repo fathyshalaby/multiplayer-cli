@@ -150,9 +150,10 @@ something not to say in a room.
 
 ## Reporting something
 
-Open an issue at
-<https://github.com/fathyshalaby/multiplayer-cli/issues>. If it is sensitive, say
-so without the details and the maintainer will find a private channel.
+**Not in a public issue.** Use
+[GitHub's private vulnerability reporting](https://github.com/fathyshalaby/multiplayer-cli/security/advisories/new),
+which is private between you and the maintainer. [`SECURITY.md`](../SECURITY.md)
+has the details, including what counts as in scope.
 
 ---
 

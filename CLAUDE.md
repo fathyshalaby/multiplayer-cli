@@ -28,8 +28,9 @@ npm run build:extension  # typecheck + esbuild bundle the VS Code extension
 npm run test:vscode      # launch a real VS Code and activate the extension
 ```
 
-`npm test` currently runs **302 tests** (301 pass, 1 skips unless the extension
-bundle was built first). It needs no API key and no coding CLI. The browser-seat
+`npm test` currently runs **317 tests**, all passing. It needs no API key and
+no coding CLI. One extension test skips unless `npm run build:extension` has
+been run first. The browser-seat
 tests need Playwright and a Chromium and skip themselves cleanly without them:
 
 ```bash
