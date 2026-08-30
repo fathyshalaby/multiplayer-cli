@@ -1,0 +1,41 @@
+---
+description: Start a shared multiplayer AI session (mpx) and give the user the invite link verbatim. Use when the user wants to pair/mob on a session, share their AI session with colleagues, or invite teammates into what they are working on.
+alwaysApply: false
+---
+
+# Share this session with your team
+
+`multiplayer-cli` turns one AI session into a room several people share. Everyone
+sees the same transcript, and nothing reaches the model until the room agrees.
+
+## Start it
+
+```bash
+mpx share
+```
+
+If `mpx` is missing (package not on npm yet):
+
+```bash
+npx github:fathyshalaby/multiplayer-cli share
+```
+
+For a dry run with no API key: `mpx share --backend echo --policy pair`
+
+Then **give the user the link verbatim**. Do not shorten it — the `#t=…` fragment
+is the room key. Do not paste the link anywhere yourself.
+
+Whoever opens the link gets a browser seat or a terminal join command. Neither
+needs an API key — only the host does.
+
+## In the session
+
+Bare text is a proposal. `/y` approves, `/n <reason>` vetoes, `/say` talks to
+the room without spending a turn. `/help` lists commands.
+
+## Cursor editor seat
+
+Install the extension from a built `.vsix` (`npm run build:extension` then package
+in `extension/`). Command palette: **Share this folder as a session**.
+
+See `skills/multiplayer/SKILL.md` for relay, policy, racing, and splitting.
