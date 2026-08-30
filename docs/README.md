@@ -70,7 +70,7 @@ Three more show up once you go past the basics:
 **5 · Other ways to take a seat**
 
 - [The editor seat](./editor.md) — the VS Code / Cursor extension
-- [Driving it from an agent](./agents.md) — the Claude Code plugin and Gemini extension
+- [Driving it from an agent](./agents.md) — Claude Code plugin, Gemini extension, Cursor rule
 
 **Reference**
 

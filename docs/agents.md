@@ -7,7 +7,9 @@ integrations here add is that the agent knows *when* to, and hands the link over
 without mangling it.
 
 There are three, and they are the same content in three packagings — the skill
-is the source, and the rest is generated or checked against it.
+is the source, and the rest is generated or checked against it. Cursor reads a
+short rule that points at that same flow, so a Cursor agent in this checkout
+already knows when to share.
 
 ## Claude Code
 
@@ -32,6 +34,20 @@ It adds `/share` and `/join`, and a context file so the model knows what a room
 is before you ask. Gemini is also a backend (`--backend gemini`), so a room can
 be hosted on it as well as started from it — though it starts a fresh session
 each turn, which the room says out loud rather than pretending otherwise.
+
+## Cursor
+
+This repository ships `.cursor/rules/multiplayer.mdc`. A Cursor agent — including
+a Cloud Agent working in this checkout — is told to run `mpx share` when someone
+asks to pair or invite teammates, and to hand the link over **verbatim**.
+
+That is the onboarding path, not a second skill: the rule is short on purpose
+and points at `skills/multiplayer/SKILL.md` for relay, policy, racing and
+splitting.
+
+The editor extension is a separate seat — same protocol, a panel instead of a
+terminal. **Share this folder as a session** starts the room from the command
+palette. See [The editor seat](./editor.md).
 
 ## Anything else
 

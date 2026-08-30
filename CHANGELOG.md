@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **A recorded browser-seat join on the README and the landing page.** The
+  existing SVG is the terminal. The new clip is what a teammate sees when they
+  open the link: type a name, join in the browser with nothing installed,
+  propose, and vote. Recorded against `--backend echo`, so it cannot spend a
+  key. GitHub will play the `<video>` where it can; the poster is the invite
+  page if it cannot.
+
+- **Cursor onboarding in the same place as Claude Code and Gemini.** The README
+  and [Driving it from an agent](./docs/agents.md) now say the three ways an
+  agent starts a room: the Claude Code plugin, the Gemini extension, and the
+  `.cursor/rules/multiplayer.mdc` rule this repo already ships. Getting started
+  has a short "from a coding agent instead" path so the first five minutes are
+  not only `npx`.
+
 ### Fixed
 
 - **A read-only seat arriving first could leave a room with no host at all.**
