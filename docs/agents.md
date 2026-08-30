@@ -41,9 +41,17 @@ This repository ships `.cursor/rules/multiplayer.mdc`. A Cursor agent — includ
 a Cloud Agent working in this checkout — is told to run `mpx share` when someone
 asks to pair or invite teammates, and to hand the link over **verbatim**.
 
-That is the onboarding path, not a second skill: the rule is short on purpose
-and points at `skills/multiplayer/SKILL.md` for relay, policy, racing and
-splitting.
+That only covers *this* repo. To have Cursor offer the same thing in any
+project, put the skill where Cursor looks for user skills — the same file
+Claude Code reads, not a copy:
+
+```
+mkdir -p ~/.cursor/skills
+cp -r skills/multiplayer ~/.cursor/skills/
+```
+
+The rule is short on purpose and points at `skills/multiplayer/SKILL.md` for
+relay, policy, racing and splitting.
 
 The editor extension is a separate seat — same protocol, a panel instead of a
 terminal. **Share this folder as a session** starts the room from the command

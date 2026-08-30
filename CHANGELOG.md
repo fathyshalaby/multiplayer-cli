@@ -18,6 +18,13 @@
   has a short "from a coding agent instead" path so the first five minutes are
   not only `npx`.
 
+- **The invite page turns a joiner into the next host.** A shared link was a
+  dead end: type your name, vote, leave. One sentence on the gate, the same
+  idea at the end of [Someone sent you a link](./docs/joining.md), and a line
+  on the landing page tell them they can start their own — ask the coding
+  agent they already use. Cursor's copy of the skill also goes in
+  `~/.cursor/skills/`, so it fires in any project, not only this checkout.
+
 ### Fixed
 
 - **A read-only seat arriving first could leave a room with no host at all.**

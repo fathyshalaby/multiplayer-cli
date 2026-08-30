@@ -91,7 +91,7 @@ is the key.
 | | |
 |---|---|
 | **Claude Code** | `/plugin marketplace add fathyshalaby/multiplayer-cli` then `/plugin install multiplayer@multiplayer-cli`. Ask it to share the session, or `/multiplayer`. |
-| **Cursor** | This repo ships `.cursor/rules/multiplayer.mdc`, so a Cursor agent in the checkout already knows to share and to give you the link verbatim. Or install the [editor seat](#use-it-from-your-editor) and run **Share this folder as a session**. |
+| **Cursor** | This repo ships `.cursor/rules/multiplayer.mdc` for the checkout. For *any* project: `mkdir -p ~/.cursor/skills && cp -r skills/multiplayer ~/.cursor/skills/` — same skill file, not a copy. Or install the [editor seat](#use-it-from-your-editor) and run **Share this folder as a session**. |
 | **Gemini CLI** | `gemini extensions install https://github.com/fathyshalaby/multiplayer-cli`, then `/share`. |
 
 Whoever opens the link still needs nothing — a browser seat, or the one-line

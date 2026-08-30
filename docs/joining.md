@@ -113,10 +113,16 @@ It is their end, not yours.
 
 Click the link, type your name, read along, and vote when something comes up.
 
----
+## Want to run one yourself
 
-If you want to run one of these sessions yourself, that part *does* need some
-technical setup — see [Getting started](./getting-started.md).
+Ask the coding agent you already use — Claude Code, Cursor, Gemini, and the
+rest — to share a session. It prints a link. You send that link the same way
+someone sent you this one.
+
+That is the loop: every room creates the next host.
+
+The slightly longer version is [Getting started](./getting-started.md), and
+[Driving it from an agent](./agents.md) is how the agent learns to do it.
 
 ---
 

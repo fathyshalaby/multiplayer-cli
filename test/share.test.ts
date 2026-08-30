@@ -128,6 +128,12 @@ test("the browser seat is one self-contained page that fetches nothing", () => {
 
   assert.ok(html.includes("location.hash"), "it reads the token from the fragment");
   assert.ok(html.includes("AES-GCM"), "and encrypts what it sends with it");
+  // The flywheel is joiner → host. The first page a stranger sees has to say
+  // they can start the next room, or every shared link is a dead end. /race
+  // lives in /help later; it must not appear on the gate itself.
+  const gate = html.slice(html.indexOf('id="gate"'), html.indexOf('id="chrome"'));
+  assert.match(gate, /start one of your own/i);
+  assert.ok(!gate.includes("/race"), "the invite page does not lead with features");
 });
 
 test("a local room serves the seat and a health check", async (t) => {
