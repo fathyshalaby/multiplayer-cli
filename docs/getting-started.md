@@ -23,6 +23,16 @@ form, substitute `npx github:fathyshalaby/multiplayer-cli` wherever you see it.
 You need Node 20.11 or newer. **Only the host needs any of this** — and a coding
 CLI they are signed into. Everyone else joins with a link.
 
+### From a coding agent instead
+
+If you are already in Claude Code, Cursor, or Gemini CLI, you do not have to
+type the command yourself. Install the skill, plugin or extension (see
+[Driving it from an agent](./agents.md)), ask it to share the session, and
+paste the link it prints — **verbatim**. The `#t=…` fragment is the room key.
+
+The room is the same; the agent just started it. Teammates still open the link
+in a browser, with nothing installed.
+
 ## 2. Start a room
 
 ```bash

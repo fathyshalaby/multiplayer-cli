@@ -10,6 +10,16 @@ to ask next, and nothing is sent to the model until the group agrees.
   <img src="./docs/media/session.svg" alt="A recorded multiplayer-cli session: two people in a room, the agent stopping at a fork to ask whether the v1 API should keep working, and the room voting on which direction it takes." width="760">
 </p>
 
+<p align="center">
+  <video src="./docs/media/browser-onboarding.mp4" width="760" controls playsinline poster="./docs/media/browser-onboarding-poster.png">
+    <a href="./docs/media/browser-onboarding.mp4">
+      <img src="./docs/media/browser-onboarding-poster.png" alt="Opening a share link: type a name, join in the browser with nothing installed, propose, and vote before anything reaches the model." width="760">
+    </a>
+  </video>
+</p>
+
+<p align="center"><em>What a teammate sees: open the link, join in the browser, propose, vote. Nothing installed.</em></p>
+
 **[multiplayer-cli.dev →](https://fathyshalaby.github.io/multiplayer-cli/)** — the short version, with the demo running.
 
 > **Were you sent a link?** You do not need any of this page.
@@ -71,6 +81,21 @@ Then type to suggest, `/y` to agree. That is the whole interface.
 > above — the rest of these docs write `mpx` for brevity.
 
 Requires Node 20.11+. One dependency. Only the host needs any of this.
+
+### Or start it from your coding agent
+
+Same room, same link. The agent runs `mpx share` and hands you the invite —
+then you paste it wherever your team is. Do not shorten it; the `#t=…` fragment
+is the key.
+
+| | |
+|---|---|
+| **Claude Code** | `/plugin marketplace add fathyshalaby/multiplayer-cli` then `/plugin install multiplayer@multiplayer-cli`. Ask it to share the session, or `/multiplayer`. |
+| **Cursor** | This repo ships `.cursor/rules/multiplayer.mdc` for the checkout. For *any* project: `mkdir -p ~/.cursor/skills && cp -r skills/multiplayer ~/.cursor/skills/` — same skill file, not a copy. Or install the [editor seat](#use-it-from-your-editor) and run **Share this folder as a session**. |
+| **Gemini CLI** | `gemini extensions install https://github.com/fathyshalaby/multiplayer-cli`, then `/share`. |
+
+Whoever opens the link still needs nothing — a browser seat, or the one-line
+`mpx join` the page shows. Details in [Driving it from an agent](./docs/agents.md).
 
 ## How it works
 
@@ -219,13 +244,25 @@ It targets Open VSX rather than the VS Code Marketplace: Live Share is licensed
 to official Microsoft builds and blocked in forks, so Cursor has had no
 equivalent. See [The editor seat](./docs/editor.md).
 
-## Use it from inside Claude Code
+## Use it from inside Claude Code, Cursor or Gemini
+
+The skill is one file — `skills/multiplayer/SKILL.md` — packaged three ways so
+the agent you already use can start a room and hand you the link.
 
 ```bash
-cp -r skills/multiplayer ~/.claude/skills/
+# Claude Code — plugin, or drop the skill on disk
+/plugin marketplace add fathyshalaby/multiplayer-cli
+/plugin install multiplayer@multiplayer-cli
+# or:  cp -r skills/multiplayer ~/.claude/skills/
+
+# Gemini CLI
+gemini extensions install https://github.com/fathyshalaby/multiplayer-cli
+
+# Cursor — already in this checkout as .cursor/rules/multiplayer.mdc
+# Ask the agent to share the session. The editor extension is a seat of its own.
 ```
 
-> *"share this session with my team"* — or `/multiplayer`
+> *"share this session with my team"*
 
 It starts the room and hands you the link to paste. See
 [Driving it from an agent](./docs/agents.md).

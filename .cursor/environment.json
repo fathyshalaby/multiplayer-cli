@@ -1,0 +1,4 @@
+{
+  "name": "multiplayer-cli",
+  "install": "./scripts/cloud-agent-install.sh"
+}
