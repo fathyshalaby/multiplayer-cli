@@ -32,12 +32,23 @@ function utf8(s: string): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
-function b64(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("base64");
+/**
+ * `Buffer` does not exist in a browser extension's service worker — only
+ * `btoa`/`atob`, which work on binary strings rather than bytes directly.
+ * Node has both, which is exactly the trap: code built on `Buffer` here would
+ * pass every test in this repo and still fail to load in a real extension.
+ */
+export function b64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+  return btoa(binary);
 }
 
-function unb64(s: string): Uint8Array {
-  return new Uint8Array(Buffer.from(s, "base64"));
+export function unb64(s: string): Uint8Array {
+  const binary = atob(s);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 async function hkdfSha256(ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, bits: number): Promise<Uint8Array> {
