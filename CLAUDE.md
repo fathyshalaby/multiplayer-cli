@@ -54,6 +54,7 @@ that fact.
 
 | Path | What it owns |
 |---|---|
+| `src/lib.ts` | The package's public library surface (`package.json`'s `main`/`exports`) — `evaluate` and friends, for someone embedding the governance kernel in their own product rather than running `mpx` itself |
 | `src/protocol.ts` | The wire contract: every type, `ClientMessage`, `ServerMessage`, `PROTOCOL_VERSION` |
 | `src/core/crypto.ts` | AES-256-GCM frames, HKDF, the ECDH handshake primitives |
 | `src/core/secure.ts` | One end of an encrypted link — handshake then sealed frames |
@@ -182,6 +183,7 @@ room state usually needs handling in all three.
 | File | Covers |
 |---|---|
 | `units.test.ts` | Commands, args, ansi, transcript, tool risk, protocol codec |
+| `lib.test.ts` | The public library surface (`src/lib.ts`) works the way an external `import from "multiplayer-cli"` actually would, not just that the underlying logic is correct |
 | `gate.test.ts` | Every voting rule, one test each |
 | `room.test.ts` | Proposals, timers, queue, presence |
 | `e2e.test.ts` | A whole room against a scripted backend |
@@ -219,6 +221,13 @@ verify.
 requested version matches `package.json`, runs the full suite, tags, cuts the
 release, and publishes to npm and Open VSX — each publish step skipping itself
 when its secret is absent. Releases are cut from Actions, never from a laptop.
+It also builds and pushes the `Dockerfile` image to
+`ghcr.io/fathyshalaby/multiplayer-cli` (tagged with the version and `latest`)
+— this is the artifact "Hosting boundary" below is about; nothing consumes
+this repo's source from outside it. Needs the repo's Settings → Actions →
+General → Workflow permissions set to "Read and write", or that job fails
+with a permissions error rather than silently skipping (unlike the npm/OVSX
+steps, `GITHUB_TOKEN` is always present, so there's no secret to be absent).
 
 ## Documentation
 
@@ -250,3 +259,44 @@ the commits. `docs/index.html` is the landing page.
   a runtime asset, it needs copying too.
 - **`mpx --version` reads `package.json`** rather than a second constant,
   because for two releases it did not, and lied.
+
+## Hosting boundary
+
+There are, or will be, three repositories: this one (OSS, self-hostable, no
+billing or tenant data, and it never runs anyone's AI session but its own
+host's), `multiplayer-cloud` (private — a reliably-hosted **relay**, i.e.
+connectivity, not compute), and `multiplayer-site` (the marketing site — not
+`docs/index.html`, which is this repo's own docs landing page and stays
+here).
+
+The AI session always runs on the host's own machine — self-hosted or not,
+that never changes. `multiplayer-cloud`'s hosted offering is `mpx relay`
+(`src/server/relay.ts`, "a dumb pipe that lets a room be reachable without an
+inbound port") run somewhere reliable, so a host without a public IP can
+still be dialed into from anywhere, and to carry the no-install browser seat
+(`serveWeb`) that a shared link needs to be worth clicking for someone with
+nothing installed. It is not a place that runs a customer's session for
+them — an earlier version of this section described `multiplayer-cloud` as
+multi-tenant room *provisioning*, which was a misreading of what "we run it
+for you" was supposed to mean here, corrected once that became clear.
+
+The rule that makes "self-host or we relay for you" safe rather than just
+aspirational: `multiplayer-cloud` depends on this repository only as a
+published artifact — `ghcr.io/fathyshalaby/multiplayer-cli`, built and
+pushed by `release.yml` — never as source. No vendoring, no git submodule, no
+copied files. A security review of the hosted relay should never need to
+read this repo's code, because nothing sensitive (a customer's token, room
+content, another tenant's traffic) can leak through an import that does not
+exist — and structurally can't anyway, since the relay only ever forwards
+sealed ciphertext it cannot read (see `relay.ts`'s own docstring). The
+`Dockerfile` is that interface: `docker run ghcr.io/fathyshalaby/
+multiplayer-cli relay --host 0.0.0.0 …` is the entire contract the cloud repo
+is allowed to depend on for the hosted relay; `... share --host 0.0.0.0 …` is
+the same contract for anyone self-hosting the whole thing, including
+themselves, on their own infrastructure.
+
+This repo's job stops at "run one room server, and one relay, well." It does
+not gain multi-tenancy, accounts, or billing concepts — if `multiplayer-cloud`
+ever needs those (differentiated relay tiers, say), they belong entirely
+there, and a change that starts pulling them in here is a sign the boundary
+is being crossed, not that this repo needs a new feature.
