@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>fake chat site</title></head>
+<body>
+  <main>
+    <div id="prompt-textarea" contenteditable="true"></div>
+    <button id="send-button" disabled>Send</button>
+    <button id="stop-button" hidden>Stop</button>
+    <div id="thread"></div>
+    <div id="limit-banner" hidden></div>
+  </main>
+  <script>
+    /**
+     * Plays the part of a real chat site's own front end: reacts only to a
+     * genuine `input` event (never to a direct `.textContent =`/`.value =`
+     * from outside), enables its own send button, and streams a scripted
+     * reply back token by token while toggling its own stop control — the
+     * same shape a real React app's state updates would produce. This is
+     * what `DomSiteDriver` has to actually interoperate with, not just a
+     * static page it can read once.
+     */
+    const compose = document.getElementById("prompt-textarea");
+    const sendBtn = document.getElementById("send-button");
+    const stopBtn = document.getElementById("stop-button");
+    const thread = document.getElementById("thread");
+    const banner = document.getElementById("limit-banner");
+
+    compose.addEventListener("input", () => {
+      sendBtn.disabled = compose.textContent.trim().length === 0;
+    });
+
+    let scripted = null; // set by the test via window.__scriptReply
+
+    sendBtn.addEventListener("click", () => {
+      if (sendBtn.disabled) return;
+      const prompt = compose.textContent;
+      compose.textContent = "";
+      sendBtn.disabled = true;
+      window.__lastPrompt = prompt;
+      const steps = scripted ?? [{ text: "ok", delayMs: 0, limited: false }];
+      let assistant = document.createElement("div");
+      assistant.setAttribute("data-message-author-role", "assistant");
+      thread.appendChild(assistant);
+      stopBtn.hidden = false;
+      let i = 0;
+      const next = () => {
+        if (i >= steps.length) {
+          stopBtn.hidden = true;
+          return;
+        }
+        const step = steps[i++];
+        if (step.limited) {
+          banner.hidden = false;
+          banner.textContent = step.text;
+          stopBtn.hidden = true;
+          return;
+        }
+        assistant.textContent = step.text;
+        setTimeout(next, step.delayMs);
+      };
+      setTimeout(next, steps[0]?.delayMs ?? 0);
+    });
+
+    stopBtn.addEventListener("click", () => {
+      stopBtn.hidden = true;
+      window.__cancelled = true;
+    });
+
+    window.__setScript = (steps) => {
+      scripted = steps;
+    };
+  </script>
+</body>
+</html>

@@ -6,3 +6,4 @@ dist/
 extension/dist/
 extension/node_modules/
 extension/*.vsix
+browser-extension/dist/
