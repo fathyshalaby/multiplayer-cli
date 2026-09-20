@@ -7,6 +7,15 @@
     "mpx": "./dist/src/cli.js",
     "multiplayer": "./dist/src/cli.js"
   },
+  "main": "./dist/src/lib.js",
+  "types": "./dist/src/lib.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/lib.d.ts",
+      "default": "./dist/src/lib.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist/src",
     "skills",

@@ -54,6 +54,7 @@ that fact.
 
 | Path | What it owns |
 |---|---|
+| `src/lib.ts` | The package's public library surface (`package.json`'s `main`/`exports`) — `evaluate` and friends, for someone embedding the governance kernel in their own product rather than running `mpx` itself |
 | `src/protocol.ts` | The wire contract: every type, `ClientMessage`, `ServerMessage`, `PROTOCOL_VERSION` |
 | `src/core/crypto.ts` | AES-256-GCM frames, HKDF, the ECDH handshake primitives |
 | `src/core/secure.ts` | One end of an encrypted link — handshake then sealed frames |
@@ -182,6 +183,7 @@ room state usually needs handling in all three.
 | File | Covers |
 |---|---|
 | `units.test.ts` | Commands, args, ansi, transcript, tool risk, protocol codec |
+| `lib.test.ts` | The public library surface (`src/lib.ts`) works the way an external `import from "multiplayer-cli"` actually would, not just that the underlying logic is correct |
 | `gate.test.ts` | Every voting rule, one test each |
 | `room.test.ts` | Proposals, timers, queue, presence |
 | `e2e.test.ts` | A whole room against a scripted backend |
