@@ -250,3 +250,26 @@ the commits. `docs/index.html` is the landing page.
   a runtime asset, it needs copying too.
 - **`mpx --version` reads `package.json`** rather than a second constant,
   because for two releases it did not, and lied.
+
+## Hosting boundary
+
+There are, or will be, three repositories: this one (OSS, self-hostable,
+no billing or tenant data ever), `multiplayer-cloud` (private — multi-tenant
+room provisioning, billing, auth, the admin surface), and `multiplayer-site`
+(the marketing site — not `docs/index.html`, which is this repo's own docs
+landing page and stays here).
+
+The rule that makes "self-host or we run it for you" safe rather than just
+aspirational: `multiplayer-cloud` depends on this repository only as a
+published artifact — the `Dockerfile` image or the `multiplayer-cli` npm
+package — never as source. No vendoring, no git submodule, no copied files.
+A security review of the hosted control plane should never need to read this
+repo's code, because nothing sensitive (a customer's token, a billing record,
+another tenant's room) can leak through an import that does not exist. The
+`Dockerfile` is that interface: `docker run multiplayer-cli share --host
+0.0.0.0 …` is the entire contract the cloud repo is allowed to depend on.
+
+This repo's job stops at "run one room server well." It does not gain
+multi-tenancy, accounts, or billing concepts — those belong entirely to
+`multiplayer-cloud`, and a change that starts pulling them in here is a sign
+the boundary is being crossed, not that this repo needs a new feature.
