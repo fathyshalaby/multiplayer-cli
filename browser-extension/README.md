@@ -13,23 +13,32 @@ tab, and hand it right back if that tab's own account runs out
 `test/browserExtension.test.ts` runs `DomSiteDriver` against a real page in a
 real Chromium. `background.ts`, `content/index.ts`, and the selectors in
 `src/content/sites.ts` are not — there is no way to load an unpacked extension
-or drive a real ChatGPT session from this environment, and the selectors are a
-best-effort reading of the site's markup, not a confirmed one. Whoever picks
-this up needs to:
+or drive a real ChatGPT/Claude.ai/Gemini session from this environment, and
+every selector in `sites.ts` is a best-effort reading of that site's markup,
+not a confirmed one. Whoever picks this up needs to:
 
 1. `npm run build:browser-extension`, load `browser-extension/dist/` as an
    unpacked extension (`chrome://extensions` → Developer mode → Load unpacked).
 2. Open the extension's options page and fill in the room's WebSocket URL,
    name, and token (the same values a terminal seat's join link carries), and
    a name for this seat.
-3. Open a matching tab (`chatgpt.com`) and confirm the selectors in
-   `src/content/sites.ts` actually match the live page — they were written
-   without one, and will need correcting.
+3. Open a matching tab (`chatgpt.com`, `claude.ai`, or `gemini.google.com`)
+   and confirm the selectors for that site in `src/content/sites.ts` actually
+   match the live page — they were written without one, and will need
+   correcting. Do this per site: getting ChatGPT's selectors right proves
+   nothing about Claude.ai's or Gemini's, since each is guessed independently
+   from that site's own markup.
 4. Start a room with `mpx share --pool`, send a message, and watch whether the
    turn reaches this tab and streams back — `content/index.ts`'s console (via
    the tab's devtools) and the background worker's own console
    (`chrome://extensions` → service worker → "Inspect") are the two places to
    look when it doesn't.
+
+Adding another site later means one more entry in `sites.ts` plus its match
+pattern in `manifest.json`'s `content_scripts.matches` and
+`host_permissions` — `DomSiteDriver` itself doesn't change, the same way
+adding a coding CLI means a new `CliProfile` in `src/agent/profiles.ts`, not
+a new class.
 
 ## Layout
 

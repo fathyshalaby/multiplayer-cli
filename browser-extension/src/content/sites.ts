@@ -21,6 +21,22 @@ export const SITES: Record<string, SiteConfig> = {
     responseSelector: "[data-message-author-role='assistant']:last-of-type",
     watchRootSelector: "main",
   },
+  "claude.ai": {
+    name: "claude",
+    composeSelector: "div[contenteditable='true'].ProseMirror",
+    sendSelector: "button[aria-label='Send message']",
+    stopSelector: "button[aria-label='Stop response']",
+    responseSelector: "[data-testid='chat-message']:last-of-type, .font-claude-message:last-of-type",
+    watchRootSelector: "main",
+  },
+  "gemini.google.com": {
+    name: "gemini",
+    composeSelector: "div.ql-editor[contenteditable='true']",
+    sendSelector: "button[aria-label='Send message']",
+    stopSelector: "button[aria-label='Stop response']",
+    responseSelector: "model-response:last-of-type",
+    watchRootSelector: "chat-window, main",
+  },
 };
 
 export function siteFor(hostname: string): SiteConfig | null {
