@@ -2,19 +2,19 @@
   "manifest_version": 3,
   "name": "mpx browser runner",
   "version": "0.12.0",
-  "description": "Offer a ChatGPT or Claude.ai tab's own session to an mpx room, the way a terminal seat offers its own logged-in CLI.",
+  "description": "Offer a ChatGPT, Claude.ai, or Gemini tab's own session to an mpx room, the way a terminal seat offers its own logged-in CLI.",
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "content_scripts": [
     {
-      "matches": ["https://chatgpt.com/*"],
+      "matches": ["https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
   ],
   "options_page": "options.html",
   "permissions": ["storage"],
-  "host_permissions": ["https://chatgpt.com/*"]
+  "host_permissions": ["https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*"]
 }
