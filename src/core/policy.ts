@@ -153,11 +153,9 @@ function applyOne(p: RoomPolicy, key: string, value: string): string | null {
       return null;
     case "merge":
     case "mergeQueued":
-      p.mergeQueued = truthy(value);
-      return null;
+      return setBool(value, key, (b) => (p.mergeQueued = b));
     case "attribute":
-      p.attribute = truthy(value);
-      return null;
+      return setBool(value, key, (b) => (p.attribute = b));
     case "autoAllow": {
       if (value === "none" || value === "") {
         p.autoAllowToolRisks = [];
@@ -189,8 +187,7 @@ function applyGate(g: GatePolicy, key: string, value: string, prefix: string): s
       return null;
     }
     case "veto":
-      g.veto = truthy(value);
-      return null;
+      return setBool(value, `${prefix}veto`, (b) => (g.veto = b));
     case "timeout":
     case "autoApproveMs": {
       if (value === "off" || value === "none" || value === "null") {
@@ -199,6 +196,11 @@ function applyGate(g: GatePolicy, key: string, value: string, prefix: string): s
       }
       const ms = parseDuration(value);
       if (ms === null) return `${prefix}timeout must be a duration like 30s, 2m, or "off"`;
+      // A zero timer expires the moment the proposal is created, so every vote
+      // "times out" before anyone can read it and silence approves it: an open
+      // room wearing a consensus label. Someone who wants that should say
+      // mode=open; someone who meant "no timer" should say off.
+      if (ms <= 0) return `${prefix}timeout must be longer than zero — use "off" for no timer, or mode=open`;
       g.autoApproveMs = ms;
       return null;
     }
@@ -209,18 +211,28 @@ function applyGate(g: GatePolicy, key: string, value: string, prefix: string): s
       return null;
     }
     case "proposerAutoYes":
-      g.proposerAutoYes = truthy(value);
-      return null;
+      return setBool(value, `${prefix}proposerAutoYes`, (b) => (g.proposerAutoYes = b));
     case "soloBypass":
-      g.soloBypass = truthy(value);
-      return null;
+      return setBool(value, `${prefix}soloBypass`, (b) => (g.soloBypass = b));
     default:
       return `unknown policy key "${prefix}${key}"`;
   }
 }
 
-function truthy(v: string): boolean {
-  return ["1", "true", "yes", "on", "y"].includes(v.toLowerCase());
+const TRUE = ["1", "true", "yes", "on", "y"];
+const FALSE = ["0", "false", "no", "off", "n"];
+
+/**
+ * Booleans are parsed strictly. Anything outside the two lists used to read as
+ * false, so `veto=ture` quietly switched the veto *off* and reported success —
+ * exactly the typo-in-a-safety-setting that unknown keys are refused for.
+ */
+function setBool(value: string, key: string, set: (b: boolean) => void): string | null {
+  const v = value.toLowerCase();
+  if (TRUE.includes(v)) set(true);
+  else if (FALSE.includes(v)) set(false);
+  else return `${key} must be true or false, got "${value}"`;
+  return null;
 }
 
 /** `45`, `45s`, `2m`, `1h` -> milliseconds. Bare numbers are seconds. */

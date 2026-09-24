@@ -244,3 +244,51 @@ test("strict preset never auto-allows a tool and never auto-approves", () => {
   assert.equal(p.tool.autoApproveMs, null);
   assert.equal(p.prompt.proposerAutoYes, false);
 });
+
+test("after an amendment, the author of the new wording is presumed — not the original author", () => {
+  const people = [person("alice"), person("bob"), person("carol")];
+  const p = proposal("bob");
+  p.text = "ship it carefully";
+  p.edits.push({ at: 0, by: "alice", byName: "alice", from: "ship it" });
+  const t = evaluate(p, gate({ mode: "consensus" }), ctx(people));
+  assert.equal(t.decision, "pending");
+  assert.equal(t.yes, 1);
+  assert.deepEqual([...t.pending].sort(), ["bob", "carol"], "bob never saw alice's words");
+});
+
+test("a veto from someone who has left does not explain the rejection", () => {
+  const people = [person("alice"), person("bob"), person("carol")];
+  const p = proposal("alice", { bob: "no" });
+  p.votes.dave = { vote: "no", at: 0, comment: "stale reason" };
+  p.votes.bob!.comment = "the real reason";
+  const t = evaluate(p, gate({ veto: true }), ctx(people));
+  assert.equal(t.decision, "reject");
+  assert.equal(t.reason, "vetoed: the real reason");
+});
+
+test("a timer that ships over an objection says so rather than claiming there was none", () => {
+  const people = [person("alice"), person("bob"), person("carol"), person("dave")];
+  const p = proposal("alice", { bob: "no" }, 10);
+  const t = evaluate(p, gate({ veto: false, autoApproveMs: 10 }), ctx(people, 10));
+  assert.equal(t.decision, "approve");
+  assert.equal(t.reason, "timer: 1 objection overruled");
+});
+
+test("a mistyped boolean in a policy override is an error, not a silent false", () => {
+  const base = resolvePreset("team")!;
+  const bad = applyOverrides(base, ["veto=ture", "tool.soloBypass=maybe", "merge=sure"]);
+  assert.equal(bad.errors.length, 3);
+  assert.equal(bad.policy.prompt.veto, true, "the veto stays on");
+  const ok = applyOverrides(base, ["veto=off", "tool.soloBypass=no", "attribute=0"]);
+  assert.deepEqual(ok.errors, []);
+  assert.equal(ok.policy.prompt.veto, false);
+  assert.equal(ok.policy.tool.soloBypass, false);
+  assert.equal(ok.policy.attribute, false);
+});
+
+test("a zero timeout is refused rather than approving every vote on creation", () => {
+  const base = resolvePreset("pair")!;
+  const { policy, errors } = applyOverrides(base, ["timeout=0", "tool.timeout=0s"]);
+  assert.equal(errors.length, 2);
+  assert.equal(policy.prompt.autoApproveMs, 20_000);
+});

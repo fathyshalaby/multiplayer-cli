@@ -27,6 +27,33 @@
 
 ### Fixed
 
+- **A mistyped switch in a policy override no longer turns it off.** Boolean
+  values were read as "true if it is one of these words, false otherwise", so
+  `veto=ture` quietly disabled the veto and reported success. They are now
+  parsed strictly and anything else is an error, the same rule unknown keys
+  already followed. `timeout=0` is refused too: a zero timer expired as the
+  proposal was created and silence approved it, which made any gate an open
+  room.
+
+- **Amending someone else's proposal no longer spends their consent.** Votes
+  were cleared on an amendment, but `proposerAutoYes` then presumed the
+  *original* author approved the host's new wording. The person who wrote the
+  current text is now the one presumed; the original author has to vote.
+
+- **Lanes and crossroads options can no longer be amended.** Their text was
+  editable, but a lane lands by its id and a choice ratifies its option's
+  label, so a reworded one was voted on as one thing and carried out as
+  another.
+
+- **The mic stays put when someone leaves a round-robin room.** It was an
+  index into the list of voters, so a departure ahead of the holder slid it
+  onto the next person. A departing holder now hands it to whoever was next.
+
+- **Rejections and timers say what actually happened.** A veto's reason could
+  quote the comment of someone who had already left (and whose vote no longer
+  counted), and a timer that shipped over an objection with the veto off said
+  "no objections". Both are written to the audit log.
+
 - **A read-only seat arriving first could leave a room with no host at all.**
   Ownership was given to whoever joined an *empty* room, which is not the same
   as whoever joined who could actually hold it: an observer filled the room

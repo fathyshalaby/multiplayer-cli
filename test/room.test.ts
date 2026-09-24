@@ -336,3 +336,49 @@ test("the room is handed on when the host leaves, and reclaimed if all of them g
   const carol = seat(room, "carol");
   assert.equal(carol.role, "owner", "someone arriving at an empty room hosts it");
 });
+
+test("only prompts can be amended — a lane or a choice is voted on by what it does", () => {
+  const { room } = makeRoom("team");
+  seat(room, "alice");
+  seat(room, "bob");
+  const info = room.ask("agent", "claude", "which way?", [{ label: "left" }, { label: "right" }], true);
+  assert.ok(!("error" in info));
+  const choice = room.openProposals().find((p) => p.kind === "choice")!;
+  assert.match(String(room.amend("alice", choice.id, "c. neither")), /cannot be amended/);
+  assert.equal(choice.text, "a. left");
+});
+
+test("a bare /amend skips a newer fork and rewrites the newest prompt", () => {
+  const { room } = makeRoom("team");
+  seat(room, "alice");
+  seat(room, "bob");
+  seat(room, "carol");
+  const p = room.propose("alice", "ship it") as Proposal;
+  room.ask("agent", "claude", "which way?", [{ label: "left" }, { label: "right" }], true);
+  assert.equal(room.amend("alice", "", "ship it carefully"), null);
+  assert.equal(p.text, "ship it carefully");
+});
+
+test("the mic stays with its holder when someone ahead of them leaves", () => {
+  const { room } = makeRoom("round-robin");
+  seat(room, "alice");
+  seat(room, "bob");
+  seat(room, "carol");
+  assert.equal(room.passMic("alice", "carol"), null);
+  assert.equal(room.micHolder()?.id, "carol");
+  room.leave("bob");
+  assert.equal(room.micHolder()?.id, "carol", "not handed back to alice");
+});
+
+test("a departing mic holder hands the mic to whoever was next in line", () => {
+  const { room } = makeRoom("round-robin");
+  seat(room, "alice");
+  seat(room, "bob");
+  seat(room, "carol");
+  assert.equal(room.passMic("alice", "bob"), null);
+  room.leave("bob");
+  assert.equal(room.micHolder()?.id, "carol");
+  assert.equal(room.passMic("carol", "carol"), null);
+  room.leave("carol");
+  assert.equal(room.micHolder()?.id, "alice", "wraps around from the end");
+});

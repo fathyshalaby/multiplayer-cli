@@ -41,10 +41,16 @@ export function evaluate(p: Proposal, policy: GatePolicy, ctx: GateContext): Tal
     else abstain++;
   }
 
-  // The author of a prompt is presumed to want it sent.
-  if (policy.proposerAutoYes && ids.has(p.authorId) && !voted.has(p.authorId)) {
+  // The author of a prompt is presumed to want it sent — the author of the
+  // *current wording*, that is. When the host amends someone else's proposal,
+  // `amend` clears every vote because consent was given to different words,
+  // and presuming the original author still wants the host's version would
+  // quietly hand that consent straight back. The person who wrote these words
+  // is presumed to want them; the original author has to say so.
+  const presumed = presumedAuthor(p);
+  if (policy.proposerAutoYes && ids.has(presumed) && !voted.has(presumed)) {
     yes++;
-    voted.add(p.authorId);
+    voted.add(presumed);
   }
 
   const pending = eligible.filter((v) => !voted.has(v.id)).map((v) => v.id);
@@ -55,7 +61,7 @@ export function evaluate(p: Proposal, policy: GatePolicy, ctx: GateContext): Tal
 
   // A veto is absolute and immediate wherever it is enabled.
   if (policy.veto && no > 0) {
-    return { ...base, need: 0, decision: "reject", reason: vetoReason(p, n) };
+    return { ...base, need: 0, decision: "reject", reason: vetoReason(p, ids) };
   }
 
   if (n === 0) {
@@ -84,7 +90,7 @@ export function evaluate(p: Proposal, policy: GatePolicy, ctx: GateContext): Tal
       if (!owner || !ids.has(owner)) {
         return { ...base, need: 1, decision: "pending", reason: "waiting for the host to reconnect" };
       }
-      const ov = p.votes[owner]?.vote ?? (policy.proposerAutoYes && p.authorId === owner ? "yes" : null);
+      const ov = p.votes[owner]?.vote ?? (policy.proposerAutoYes && presumed === owner ? "yes" : null);
       if (ov === "yes") return { ...base, need: 0, decision: "approve", reason: "approved by the host" };
       if (ov === "no") return { ...base, need: 0, decision: "reject", reason: "declined by the host" };
       return decideOnTimer(base, policy, p, timedOut, 1, "waiting for the host");
@@ -131,19 +137,33 @@ function decideOnTimer(
   }
   // Timer fired. Silence counts as consent only if enough people spoke up.
   if (base.yes >= policy.minYesOnTimeout) {
+    // With the veto off, a "no" that did not make the threshold unreachable
+    // does not stop the timer — but the resolution must not then claim there
+    // were no objections. It is written to the audit log.
+    const objections = base.no > 0 ? `${base.no} objection${base.no === 1 ? "" : "s"} overruled` : "no objections";
     return {
       ...base,
       need: 0,
       decision: "approve",
-      reason: policy.minYesOnTimeout > 0 ? `timer: ${base.yes} approvals, no objections` : "timer: no objections",
+      reason: policy.minYesOnTimeout > 0 ? `timer: ${base.yes} approvals, ${objections}` : `timer: ${objections}`,
     };
   }
   return { ...base, need, decision: "reject", reason: `timer: needed ${policy.minYesOnTimeout} approvals, got ${base.yes}` };
 }
 
-function vetoReason(p: Proposal, _n: number): string {
+/** Whoever wrote the proposal's current text: the last amender, else the author. */
+function presumedAuthor(p: Proposal): string {
+  return p.edits.at(-1)?.by ?? p.authorId;
+}
+
+/**
+ * Only a veto that counted may explain the rejection. A "no" left behind by
+ * someone who has since disconnected is ignored by the tally, so quoting its
+ * comment would blame the rejection on a reason that did not cause it.
+ */
+function vetoReason(p: Proposal, electorate: Set<string>): string {
   const blockers = Object.entries(p.votes)
-    .filter(([, r]) => r.vote === "no")
+    .filter(([id, r]) => r.vote === "no" && electorate.has(id))
     .map(([, r]) => r.comment)
     .filter(Boolean);
   return blockers.length ? `vetoed: ${blockers[0]}` : "vetoed";

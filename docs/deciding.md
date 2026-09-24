@@ -36,6 +36,10 @@ proposal goes. That keeps a room moving when someone has stepped away. Set
 real vote every time.
 
 **Amending clears the votes.** People approved the old wording, not the new one.
+When the host rewords someone else's proposal, the host's own yes is the one
+presumed; the original author has to approve the new wording like everyone
+else. Only prompts can be amended — a lane or a crossroads option is voted on by
+what it does, not by how it is phrased.
 
 **Only people actually present count.** The electorate is recomputed on every
 evaluation, so a laptop closing mid-vote cannot deadlock a room waiting for
@@ -93,7 +97,7 @@ resolves what was pending.
 | `mode` | one of the modes above |
 | `quorum` | approvals needed in `quorum` mode |
 | `veto` | a single `no` ends it |
-| `timeout` | silence-is-consent window (`45s`, `2m`, `off`) |
+| `timeout` | silence-is-consent window (`45s`, `2m`, `off`; zero is refused) |
 | `minYes` | approvals required when the timer fires |
 | `proposerAutoYes` | the author's own vote is implied |
 | `soloBypass` | skip the ceremony in a one-person room |
@@ -102,7 +106,9 @@ resolves what was pending.
 | `merge` | bundle prompts approved while the model was busy into one turn |
 | `attribute` | tell the model who wrote and who approved each message |
 
-A typo in a safety setting is reported, not silently ignored.
+A typo in a safety setting is reported, not silently ignored — that covers
+values as well as keys: switches take `true`/`false` (or `on`/`off`, `yes`/`no`,
+`1`/`0`), and `veto=ture` is an error rather than a veto switched off.
 
 ## Four things get voted on, not one
 

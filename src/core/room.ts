@@ -156,7 +156,19 @@ export class Room extends EventEmitter {
   leave(pid: string): void {
     const p = this.participants.get(pid);
     if (!p) return;
+    // The mic is an index into the eligible list, so removing someone ahead of
+    // the holder would slide it onto the next person, and removing the holder
+    // at the end of the list would wrap it back to the first. Keep it on the
+    // same person, or on whoever was next in line after a departing holder.
+    const before = this.list().filter((q) => q.connected && q.role !== "observer");
+    const at = before.findIndex((q) => q.id === pid);
+    const held = before.length ? this.micIdx % before.length : 0;
     this.participants.delete(pid);
+    if (at >= 0) {
+      const remaining = before.length - 1;
+      const next = at < held ? held - 1 : held;
+      this.micIdx = remaining > 0 ? next % remaining : 0;
+    }
     this.emitMsg({ t: "presence", participants: this.list(), left: p.name });
     if (this.ownerId === pid) this.promoteNewOwner();
     // Their pending proposals go with them; their cast votes are simply ignored
@@ -464,10 +476,17 @@ export class Room extends EventEmitter {
   amend(pid: string, proposalId: string, text: string): string | null {
     const p = this.participants.get(pid);
     if (!p) return "you are not in this room";
-    const prop = this.resolveHandle(proposalId);
+    // A bare `/amend` means the newest open *prompt*: those are the only
+    // proposals that can be amended, and an open fork or a finished lane
+    // arriving after it should not turn the command into an error.
+    const prop = proposalId.trim() ? this.resolveHandle(proposalId) : this.newestOpen("prompt");
     if (!prop) return `no such proposal ${proposalId}`;
     if (prop.status !== "open") return `${prop.id} is already ${prop.status}`;
-    if (prop.kind === "tool") return "tool calls cannot be amended — approve or reject";
+    // Only a prompt's text is what gets carried out. A lane lands by its id and
+    // a choice ratifies its option's label, so rewording either would change
+    // what people think they are voting on without changing what their vote
+    // does. Tool calls are the model's, not the room's, to phrase.
+    if (prop.kind !== "prompt") return `${prop.kind} proposals cannot be amended — approve or reject`;
     if (prop.authorId !== pid && p.role !== "owner") return `only ${prop.authorName} or the host can amend ${prop.id}`;
     const body = text.trim();
     if (!body) return "empty amendment";
