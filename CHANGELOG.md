@@ -35,6 +35,14 @@
   were sealed end to end. Agents were warning people off the one option that
   makes a link work from anywhere. It now says what a relay can and cannot see.
 
+- **A browser seat sent nothing while its person was only reading.** The
+  terminal seat pings every 25 seconds; the browser seat never did. A relay's
+  edge proxy, a corporate proxy or a phone's NAT will drop a connection that
+  has been silent for a minute, and a browser seat is usually someone watching
+  quietly, which is exactly the teammate a relayed link is for. It now sends
+  the same heartbeat. Checked in a real Chromium: idle for 27 seconds after
+  joining, one heartbeat with this change and none without it.
+
 - **A relay that never connected warned that it had disconnected.** A failed
   dial still fires `close` after the error that already reported it, and the
   host was told "teammates will need a new invite" for a room nobody had been

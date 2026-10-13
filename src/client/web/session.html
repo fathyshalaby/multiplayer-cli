@@ -334,9 +334,18 @@
 
   function connect(name) {
     ws = new WebSocket(wsUrl);
+    // A heartbeat, as the terminal seat's Connection sends. A browser seat is
+    // often someone reading quietly, and a relay's edge proxy, a corporate
+    // proxy or a phone's NAT will drop a connection that has said nothing for
+    // a minute. Started once hello is sent, so it never precedes the handshake.
+    let beat = null;
+    const hello = () => {
+      send({ t: "hello", name: name, protocol: PROTOCOL });
+      if (!beat) beat = setInterval(() => send({ t: "ping" }), 25000);
+    };
     ws.onopen = async () => {
       if (authKey) ws.send(await beginHandshake());
-      else send({ t: "hello", name: name, protocol: PROTOCOL });
+      else hello();
     };
     ws.onmessage = async (ev) => {
       if (authKey && !roomKey) {
@@ -346,7 +355,7 @@
           ws.close();
           return;
         }
-        send({ t: "hello", name: name, protocol: PROTOCOL });
+        hello();
         return;
       }
       const plain = await openFrame(ev.data);
@@ -360,6 +369,7 @@
     };
     ws.onerror = () => { $("gate-err").textContent = "could not reach the room."; };
     ws.onclose = (e) => {
+      if (beat) { clearInterval(beat); beat = null; }
       if (!me) { $("gate-err").textContent = "the room refused the connection" + (e.reason ? " — " + e.reason : "") + "."; return; }
       line("left the room" + (e.reason ? " (" + e.reason + ")" : ""), "bad");
       setInput(false);
