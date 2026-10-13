@@ -8,6 +8,20 @@ import { WebConnection } from "../src/browser/webConnection.js";
 import { RunnerSeat, type SiteDriver } from "../src/browser/runnerSeat.js";
 import type { ServerMessage } from "../src/protocol.js";
 import type { AgentBackend, AgentEvents, TurnResult } from "../src/agent/types.js";
+import { WebSocket as WsWebSocket } from "ws";
+
+// `WebConnection` uses the global `WebSocket`, which every browser has but
+// Node only gained as a stable global in 22. `package.json` promises 20.11,
+// and CI runs this suite there, so on an older Node lend it the `ws`
+// package's client — it implements the same `addEventListener` /
+// `MessageEvent` surface, which is all `WebConnection` touches. Without this
+// both tests below failed on 20.11 with "WS is not a constructor" and kept
+// `main` red, while passing on 22 and 24. Skipping on old Node would have
+// hidden the whole browser-runner chain from the one version most likely to
+// break it; a stand-in keeps it under test.
+if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === "undefined") {
+  (globalThis as { WebSocket?: unknown }).WebSocket = WsWebSocket;
+}
 
 /**
  * Proves the whole browser-runner chain — WebConnection, WebSecureChannel,
