@@ -28,7 +28,7 @@ npm run build:extension  # typecheck + esbuild bundle the VS Code extension
 npm run test:vscode      # launch a real VS Code and activate the extension
 ```
 
-`npm test` currently runs **353 tests** (352 pass, 1 skips unless the extension
+`npm test` currently runs **368 tests** (367 pass, 1 skips unless the extension
 bundle was built first). It needs no API key and no coding CLI. The browser-seat
 tests need a Chromium for Playwright (a dev dependency, never shipped to
 users) and skip themselves cleanly without one:
@@ -70,6 +70,7 @@ that fact.
 | `src/server/server.ts` | The room, wired to the session. The largest file, and the integration point |
 | `src/server/transport.ts` | How seats arrive: a local port, or a relay dialled out to |
 | `src/server/relay.ts` | The relay — a pipe that knows as little as possible |
+| `src/server/relayChoice.ts` | Which relay `share` goes through, `DEFAULT_RELAY`, and the `--open` rule. Pure |
 | `src/server/web.ts` | Serves the browser seat and the invite page |
 | `src/server/lanes.ts` | Racing and splitting: N backends, N worktrees, N results |
 | `src/server/runners.ts` | Routing turns across seats' accounts (experimental, `--pool`) |
@@ -193,6 +194,7 @@ room state usually needs handling in all three.
 | `crypto.test.ts` | Sealing, nonces, replay guards |
 | `relay.test.ts` | The relay's limits, rate limiting, room registration |
 | `share.test.ts` | Link construction, tokens, transports |
+| `relayChoice.test.ts` | Which relay `share` uses, one rule per test, and the fallback when the hosted one is down |
 | `lanes.test.ts` | Racing and splitting, worktrees, landing |
 | `overlap.test.ts` | Two split lanes claiming one file |
 | `preview.test.ts` | Lane previews, started through a shell so process-group kill is really tested |

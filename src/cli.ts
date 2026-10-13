@@ -3,8 +3,9 @@ import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { RoomServer } from "./server/server.js";
-import { LocalWsTransport, RelayTransport, type Transport } from "./server/transport.js";
+import { LocalWsTransport, RelayTransport, listenWithFallback, type Transport } from "./server/transport.js";
 import { Relay, MAX_FRAME_BYTES } from "./server/relay.js";
+import { chooseRelay, DEFAULT_RELAY } from "./server/relayChoice.js";
 import { Connection } from "./client/connection.js";
 import { Tui } from "./client/tui.js";
 import { FullScreenSeat, canFullScreen, type Seat, type SeatOptions } from "./client/fullscreen.js";
@@ -116,11 +117,24 @@ function buildRoomConfig(p: Parsed, easy = false) {
     : null;
 
   // `share` is the no-configuration path, so it reaches for the widest thing
-  // that still works: a saved relay if there is one, otherwise the local
-  // network. Both are still gated by the room token.
-  const savedRelay = readConfig().relay;
-  const relay = str(p, "relay", "") || (easy && !bool(p, "local", false) ? savedRelay ?? null : null);
-  const defaultBind = easy && !relay && !bool(p, "local", false) ? "0.0.0.0" : "127.0.0.1";
+  // that still works: a relay, so the link opens for someone who is not on the
+  // host's network. Every frame is still sealed with the room token, so the
+  // relay carries ciphertext. The rules, --open included, are in relayChoice.ts.
+  const local = bool(p, "local", false);
+  const lan = bool(p, "lan", false);
+  if (local && lan) fatal("--local and --lan contradict each other: this machine only, or your whole network?");
+  const choice = chooseRelay({
+    explicit: str(p, "relay", ""),
+    easy,
+    local,
+    lan,
+    open,
+    saved: readConfig().relay,
+    env: process.env.MPX_RELAY,
+    builtin: DEFAULT_RELAY,
+  });
+  const relay = choice.url;
+  const defaultBind = easy && !local ? "0.0.0.0" : "127.0.0.1";
 
   return {
     detected,
@@ -128,6 +142,8 @@ function buildRoomConfig(p: Parsed, easy = false) {
     bindHost: str(p, "host", defaultBind),
     port: num(p, "port", 7777),
     relay,
+    relaySource: choice.source,
+    relayNote: choice.note,
     server: {
       roomName: name,
       token: open ? null : str(p, "token", makeToken()),
@@ -156,7 +172,14 @@ function buildRoomConfig(p: Parsed, easy = false) {
 
 function makeTransport(cfg: ReturnType<typeof buildRoomConfig>, onWarn: (t: string) => void): Transport {
   if (cfg.relay) {
-    return new RelayTransport({ url: cfg.relay, roomName: cfg.server.roomName, onWarn });
+    return new RelayTransport({
+      url: cfg.relay,
+      roomName: cfg.server.roomName,
+      onWarn,
+      // A relay the host never named should not hold up their room if it is
+      // down: fail fast and let cmdHost fall back to the network.
+      timeoutMs: cfg.relaySource === "default" ? 5_000 : undefined,
+    });
   }
   return new LocalWsTransport({
     host: cfg.bindHost,
@@ -228,6 +251,9 @@ function inviteBanner(cfg: ReturnType<typeof buildRoomConfig>, server: RoomServe
     out.push(`    ${c.green(`mpx join ${server.joinUrl()}`)}`);
   }
   for (const d of server.inviteDetail()) out.push(c.dim(`    ${d}`));
+  if (cfg.relaySource === "default") {
+    out.push(c.dim("    it only ever sees sealed frames · --lan keeps the room on your network instead"));
+  }
   for (const w of warnings) out.push(c.yellow(`    ! ${w}`));
   out.push("");
   return out;
@@ -252,12 +278,27 @@ function makeSeat(p: Parsed, opts: SeatOptions): Seat {
 
 async function cmdHost(p: Parsed, easy = false): Promise<void> {
   const cfg = buildRoomConfig(p, easy);
-  if (cfg.relay && str(p, "relay", "")) saveConfig({ relay: cfg.relay });
+  if (cfg.relay && cfg.relaySource === "flag") saveConfig({ relay: cfg.relay });
 
   const warnings: string[] = [];
-  const transport = makeTransport(cfg, (t) => warnings.push(t));
-  const server = new RoomServer({ ...cfg.server, transport });
-  await server.listen();
+  if (cfg.relayNote) warnings.push(cfg.relayNote);
+  const room = () => new RoomServer({ ...cfg.server, transport: makeTransport(cfg, (t) => warnings.push(t)) });
+  // Only the built-in relay falls back. A relay the host named, by flag,
+  // environment or saved config, failing is something they need to hear
+  // about, not have quietly swapped for a different kind of room.
+  const { server } = await listenWithFallback(
+    room,
+    cfg.relaySource === "default"
+      ? () => {
+          // bindHost is already the network (or the --host given): only
+          // `share` without --local picks the built-in relay.
+          cfg.relay = null;
+          cfg.relaySource = null;
+          return room();
+        }
+      : null,
+    (err) => warnings.push(`the hosted relay is not answering (${err.message}), so this link only works on your network`),
+  );
 
   const name = str(p, "name", defaultName());
   saveConfig({ name });
@@ -674,9 +715,14 @@ ${c.bold("Room options")}  (share / serve)
   --no-transcript        do not write an audit log
 
 ${c.bold("Who can reach it")}
-  mpx share              on your network, gated by the token in the link
+  mpx share              reachable anywhere, through the hosted relay
+                         (${DEFAULT_RELAY}) — it carries sealed frames
+                         and cannot read them; falls back to your network if
+                         it is down
+  --lan                  on your network only, no relay
   --local                this machine only
-  --relay <url>          through a relay, reachable anywhere (remembered after once)
+  --relay <url>          through your own relay instead (remembered after once)
+  MPX_RELAY=<url|off>    a different default relay, or none
   --open                 no token, and therefore no encryption
   --tls-cert <f> --tls-key <f>   serve wss:// and https:// directly
   --port <n>  --host <addr>      pick them yourself

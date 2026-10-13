@@ -2,7 +2,8 @@ import * as vscode from "vscode";
 import { hostname } from "node:os";
 import { Connection } from "../../src/client/connection.js";
 import { RoomServer } from "../../src/server/server.js";
-import { LocalWsTransport, RelayTransport, type Transport } from "../../src/server/transport.js";
+import { LocalWsTransport, RelayTransport, listenWithFallback, type Transport } from "../../src/server/transport.js";
+import { chooseRelay, DEFAULT_RELAY } from "../../src/server/relayChoice.js";
 import { parseJoinTarget } from "../../src/util/url.js";
 import { resolvePreset } from "../../src/core/policy.js";
 import { DEFAULT_BASE_PORT, DEFAULT_HOST } from "../../src/core/preview.js";
@@ -91,43 +92,73 @@ async function shareFolder(): Promise<void> {
   const detected = chosen ? null : detectBackend();
   const backend = (chosen || detected!.backend) as BackendName;
   const preset = cfg.get<string>("policy") || "team";
-  const relay = cfg.get<string>("relay") || "";
+  // Same rules as `mpx share` (relayChoice.ts), so the editor seat's link
+  // opens from anywhere too: the setting names a relay, "off" means the local
+  // network, and empty means the hosted one.
+  const setting = (cfg.get<string>("relay") || "").trim();
+  const off = setting.toLowerCase() === "off";
+  const choice = chooseRelay({
+    explicit: off ? "" : setting,
+    easy: true,
+    local: false,
+    lan: off,
+    open: false,
+    saved: null,
+    env: process.env.MPX_RELAY,
+    builtin: DEFAULT_RELAY,
+  });
   const cwd = folder.uri.fsPath;
   const name = roomName();
   const tok = makeToken();
 
-  const transport: Transport = relay
-    ? new RelayTransport({ url: relay, roomName: name, onWarn: (t) => vscode.window.showWarningMessage(t) })
-    : new LocalWsTransport({ host: "0.0.0.0", port: 0, roomName: name, tls: null });
+  const makeServer = (relay: string | null) => {
+    const transport: Transport = relay
+      ? new RelayTransport({
+          url: relay,
+          roomName: name,
+          onWarn: (t) => vscode.window.showWarningMessage(t),
+          timeoutMs: choice.source === "default" ? 5_000 : undefined,
+        })
+      : new LocalWsTransport({ host: "0.0.0.0", port: 0, roomName: name, tls: null });
+    return new RoomServer({
+      transport,
+      roomName: name,
+      token: tok,
+      policy: resolvePreset(preset)!,
+      cwd,
+      backend,
+      model: backend === "anthropic" ? "claude-opus-5" : "",
+      maxTokens: 32000,
+      showThinking: false,
+      systemPromptExtra: "",
+      backendBin: "",
+      backendArgs: [],
+      permissionMode: "acceptEdits",
+      resume: null,
+      attach: null,
+      pool: false,
+      lanes: cfg.get<number>("lanes") ?? 3,
+      laneSetup: cfg.get<string>("laneSetup") || null,
+      lanePreview: cfg.get<string>("lanePreview") || null,
+      lanePreviewPort: cfg.get<number>("lanePreviewPort") ?? DEFAULT_BASE_PORT,
+      lanePreviewHost: cfg.get<string>("lanePreviewHost") || DEFAULT_HOST,
+      transcriptPath: null,
+    });
+  };
 
-  const server = new RoomServer({
-    transport,
-    roomName: name,
-    token: tok,
-    policy: resolvePreset(preset)!,
-    cwd,
-    backend,
-    model: backend === "anthropic" ? "claude-opus-5" : "",
-    maxTokens: 32000,
-    showThinking: false,
-    systemPromptExtra: "",
-    backendBin: "",
-    backendArgs: [],
-    permissionMode: "acceptEdits",
-    resume: null,
-    attach: null,
-    pool: false,
-    lanes: cfg.get<number>("lanes") ?? 3,
-    laneSetup: cfg.get<string>("laneSetup") || null,
-    lanePreview: cfg.get<string>("lanePreview") || null,
-    lanePreviewPort: cfg.get<number>("lanePreviewPort") ?? DEFAULT_BASE_PORT,
-    lanePreviewHost: cfg.get<string>("lanePreviewHost") || DEFAULT_HOST,
-    transcriptPath: null,
-  });
-
+  let server: RoomServer;
   let info;
   try {
-    info = await server.listen();
+    // Only the built-in relay falls back, as on the command line: one the user
+    // named failing is theirs to hear about.
+    ({ server, info } = await listenWithFallback(
+      () => makeServer(choice.url),
+      choice.source === "default" ? () => makeServer(null) : null,
+      (err) =>
+        vscode.window.showWarningMessage(
+          `The hosted relay is not answering (${err.message}), so this link only works on your network.`,
+        ),
+    ));
   } catch (err) {
     vscode.window.showErrorMessage(`Could not start the session: ${(err as Error).message}`);
     return;

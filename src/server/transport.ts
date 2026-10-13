@@ -162,6 +162,12 @@ export interface RelayTransportOptions {
   url: string;
   roomName: string;
   onWarn?: (text: string) => void;
+  /**
+   * How long to wait for the relay to accept and confirm the room. The built-in
+   * default relay gets a short one, because when it is down `share` falls back
+   * to the local network and the host should not sit through 15 seconds first.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -180,6 +186,13 @@ export class RelayTransport implements Transport {
   private opts: RelayTransportOptions;
   private closing = false;
   private onReady: (() => void) | null = null;
+  /**
+   * Whether the relay ever confirmed the room. A dial that fails still fires
+   * `close` after the `error` that already rejected it, and "teammates will
+   * need a new invite" is wrong for a room nobody was ever invited to: it
+   * printed under the fallback notice whenever the hosted relay was down.
+   */
+  private confirmed = false;
 
   constructor(opts: RelayTransportOptions) {
     this.opts = opts;
@@ -207,7 +220,8 @@ export class RelayTransport implements Transport {
 
   private dial(hostUrl: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(hostUrl, { handshakeTimeout: 15_000 });
+      const timeoutMs = this.opts.timeoutMs ?? 15_000;
+      const ws = new WebSocket(hostUrl, { handshakeTimeout: timeoutMs });
       this.ws = ws;
       let settled = false;
 
@@ -219,12 +233,13 @@ export class RelayTransport implements Transport {
         settled = true;
         ws.close(1000, "no ready");
         reject(new Error(`the relay at ${this.opts.url} accepted the connection but never confirmed the room`));
-      }, 15_000);
+      }, timeoutMs);
       timer.unref?.();
 
       this.onReady = () => {
         if (settled) return;
         settled = true;
+        this.confirmed = true;
         clearTimeout(timer);
         resolve();
       };
@@ -251,7 +266,7 @@ export class RelayTransport implements Transport {
         // Everyone came in through the relay, so losing it drops the room.
         for (const peer of this.peers.values()) peer.fireClose();
         this.peers.clear();
-        if (!this.closing) {
+        if (!this.closing && this.confirmed) {
           this.opts.onWarn?.(`relay disconnected (${reason.toString() || code}) — teammates will need a new invite`);
         }
       });
@@ -366,4 +381,34 @@ export function normalize(url: string): string {
   else if (u.startsWith("https://")) u = "wss://" + u.slice(8);
   else if (!u.startsWith("ws://") && !u.startsWith("wss://")) u = "wss://" + u;
   return u;
+}
+
+/**
+ * Start a room, and if that fails, start a different one instead.
+ *
+ * `mpx share` and the editor seat both go through the hosted relay by default
+ * and fall back to the local network when it is down, so that a hosted
+ * service having a bad day never stops anyone starting a room. This is that
+ * fallback, in one place, so the two cannot drift and a test can drive it
+ * against a relay that is really not there.
+ *
+ * `fallback` is null when there is nothing to fall back to: a relay the host
+ * named failing is something they need to hear about, so it rethrows.
+ * Rooms build their backend lazily, so the room that failed to listen has
+ * nothing running to clean up.
+ */
+export async function listenWithFallback<T extends { listen(): Promise<TransportInfo> }>(
+  primary: () => T,
+  fallback: (() => T) | null,
+  onFallback: (err: Error) => void,
+): Promise<{ server: T; info: TransportInfo; fellBack: boolean }> {
+  const first = primary();
+  try {
+    return { server: first, info: await first.listen(), fellBack: false };
+  } catch (err) {
+    if (!fallback) throw err;
+    onFallback(err as Error);
+    const second = fallback();
+    return { server: second, info: await second.listen(), fellBack: true };
+  }
 }

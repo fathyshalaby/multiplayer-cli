@@ -65,7 +65,7 @@ into, starts a room, and prints a link to paste into chat:
 
   Send this to your team:
 
-    http://192.168.1.20:7777/s/amber-ridge-04#t=Kf3nQ8vLm2
+    https://mpx-relay.fly.dev/s/amber-ridge-04#t=Kf3nQ8vLm2
 ```
 
 Whoever opens that link gets a seat — **in the browser, with nothing installed
@@ -271,7 +271,7 @@ It starts the room and hands you the link to paste. See
 ```bash
 npm install
 npm run build
-npm test          # 353 tests, no API key and no coding CLI required
+npm test          # 368 tests, no API key and no coding CLI required
 ```
 
 The layout follows the seams:

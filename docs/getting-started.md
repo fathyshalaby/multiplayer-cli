@@ -46,12 +46,14 @@ mpx share
 
   Send this to your team:
 
-    http://192.168.1.20:7777/s/amber-ridge-04#t=Kf3nQ8vLm2
+    https://mpx-relay.fly.dev/s/amber-ridge-04#t=Kf3nQ8vLm2
 ```
 
 That is the whole setup. `mpx share` finds whichever coding CLI you already have
-— Claude Code, Codex, Copilot, OpenCode and others — binds where your team can
-reach it, and prints a link.
+— Claude Code, Codex, Copilot, OpenCode and others — and prints a link that
+opens from anywhere, through the hosted relay. The relay only carries sealed
+frames; see [Reaching your team](./relay.md) for what it can and cannot see,
+and `--lan` to keep the room on your own network instead.
 
 **No coding CLI installed?** It still runs, on an offline stand-in backend, so
 you can see how a room works before anything is real.
