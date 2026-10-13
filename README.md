@@ -52,7 +52,7 @@ together what actually gets sent.
 ## Try it in 30 seconds
 
 ```bash
-npx github:fathyshalaby/multiplayer-cli share
+npx multiplayer-cli share
 ```
 
 That is the whole setup. It finds whichever coding CLI you are already signed
@@ -76,9 +76,8 @@ Then type to suggest, `/y` to agree. That is the whole interface.
 > **No coding CLI installed?** It still runs, on an offline demo backend, so you
 > can see how a room works before anything is real.
 >
-> **Not on npm yet.** Once it is published, `npm install -g multiplayer-cli`
-> will give you the shorter `mpx` command. Until then use the `npx github:` form
-> above — the rest of these docs write `mpx` for brevity.
+> **Using it often?** `npm install -g multiplayer-cli` gives you the shorter
+> `mpx` command — the rest of these docs write `mpx` for brevity.
 
 Requires Node 20.11+. One dependency. Only the host needs any of this.
 

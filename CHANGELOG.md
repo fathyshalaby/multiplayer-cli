@@ -1,8 +1,43 @@
 # Changelog
 
-## Unreleased
+## 0.13.0
+
+The first release on npm. Every earlier version was only ever installable
+from the repository, so `npx multiplayer-cli share` and `npm install -g
+multiplayer-cli` are new as of this one, and the docs now say so instead of
+apologising for `npx github:`.
 
 ### Added
+
+- **The consent gate is a library now, not only a CLI.** `import { evaluate,
+  resolvePreset } from "multiplayer-cli"` gives someone building their own
+  multiplayer AI product the one function that decides whether a room has
+  actually agreed, plus the presets and the policy types, without the room
+  server or the wire protocol. `evaluate` already took `now` as an argument
+  and touched nothing else, which is why `gate.test.ts` can test every rule;
+  that same purity is what makes it embeddable. `package.json` gains
+  `main`/`types`/`exports`, declarations are emitted, and `test/lib.test.ts`
+  checks the packaging: that importing only the public entry point is enough
+  to run a real decision.
+
+- **A Docker image, published with every release.**
+  `ghcr.io/fathyshalaby/multiplayer-cli` runs `share` by default and `relay`
+  when told to, with nothing in it but the compiled output and `ws`. It is the
+  supported way to run a relay on a server, and the only form in which
+  anything hosted depends on this repository: through the published
+  artifact, never by importing its source.
+
+- **An experimental browser runner: a ChatGPT, Claude.ai or Gemini tab can
+  take a turn.** Pooling (`--pool`) could already hand a turn to a seat's own
+  CLI when the host's account ran out. A Chrome extension in
+  `browser-extension/` now lets a seat offer a logged-in chat tab instead.
+  The room's handshake and sealed frames are reimplemented on WebCrypto and
+  proven to interoperate byte for byte with the Node versions, and the page
+  driver is tested in a real Chromium against a fixture that only reacts to
+  genuine input events, the way those sites do. **The site selectors have not
+  been checked against live, logged-in pages.** That is why it is
+  experimental, not published to any extension store, and off unless someone
+  loads it unpacked.
 
 - **A recorded browser-seat join on the README and the landing page.** The
   existing SVG is the terminal. The new clip is what a teammate sees when they
@@ -27,6 +62,14 @@
 
 ### Fixed
 
+- **Installing it no longer downloads a browser-automation library.**
+  Playwright was an optional dependency, there only so the browser-seat tests
+  could find it, and npm installs optional dependencies by default. So every
+  `npx multiplayer-cli share` would have fetched about 10 MB of playwright-core
+  that no code path in the package uses. It is a dev dependency now, and an
+  install is `multiplayer-cli` plus `ws`, about 1.6 MB, which is what "one
+  dependency" on the README always meant.
+
 - **A read-only seat arriving first could leave a room with no host at all.**
   Ownership was given to whoever joined an *empty* room, which is not the same
   as whoever joined who could actually hold it: an observer filled the room
@@ -49,6 +92,13 @@
   catching it; they now join the way the server does.
 
 ### Security
+
+- **A high-severity advisory in a dev dependency.** `npm audit` flagged
+  js-yaml (GHSA-2883-xcg3-v3hh) and qs (two moderate DoS advisories), both
+  several layers under `@vscode/vsce`, which only packages the editor
+  extension in CI. Neither is reachable from the package or its one runtime
+  dependency, but they are fixed anyway within vsce's existing range. Only
+  the lockfile moved.
 
 - **Lane checkouts sat at a path anyone on the machine could claim first.** A
   race put its worktrees in `/tmp/mpx-lanes/<room>/<turn>`. The turn id is

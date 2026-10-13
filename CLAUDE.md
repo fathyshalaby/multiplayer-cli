@@ -30,10 +30,11 @@ npm run test:vscode      # launch a real VS Code and activate the extension
 
 `npm test` currently runs **353 tests** (352 pass, 1 skips unless the extension
 bundle was built first). It needs no API key and no coding CLI. The browser-seat
-tests need Playwright and a Chromium and skip themselves cleanly without them:
+tests need a Chromium for Playwright (a dev dependency, never shipped to
+users) and skip themselves cleanly without one:
 
 ```bash
-npm install playwright && npx playwright install chromium
+npx playwright install chromium
 ```
 
 There is no ESLint, Prettier, or format script. Match the surrounding style.
