@@ -1,10 +1,12 @@
 # multiplayer-cli
 
-**Share one AI coding session with your team.**
+**Kill single-player AI.**
 
-You run a Claude Code / Codex / Copilot session on your machine. Your teammates
-join with a link. Everyone sees the same conversation, anyone can suggest what
-to ask next, and nothing is sent to the model until the group agrees.
+Every AI coding tool works the same way: one person, one agent, door closed.
+`mpx` shares the session instead. You run a Claude Code / Codex / Copilot
+session on your machine. Your teammates join with a link. Everyone sees the
+same conversation, anyone can suggest what to ask next, and nothing is sent to
+the model until the group agrees.
 
 <p align="center">
   <img src="./docs/media/session.svg" alt="A recorded multiplayer-cli session: two people in a room, the agent stopping at a fork to ask whether the v1 API should keep working, and the room voting on which direction it takes." width="760">
@@ -41,13 +43,17 @@ person starting it does.
 
 ## Why
 
-Pair programming with an AI is usually one person driving and everyone else
-reading over a shoulder. Or worse: three people running three private sessions
-that each learn a third of the context.
+Single-player AI is the default in every coding tool: one person drives, the
+agent writes three thousand lines, and the team meets them for the first time in
+a pull request too big to read. Or three people run three private sessions, and
+each one learns a third of the context. The industry's answer is more autonomy:
+fewer humans in the loop.
 
-`mpx` makes the session itself the shared thing. One conversation, one context,
-one place the work happens — and a vote in front of it, so the group decides
-together what actually gets sent.
+`mpx` bets the other way. It makes the session itself the shared thing. One
+conversation, one context, one place the work happens, and a vote in front of
+it, so the group decides together what actually gets sent. It's the villain in
+your AI's story: the agent loses its autopilot, and the team gets a say before
+anything happens, not after.
 
 ## Try it in 30 seconds
 
