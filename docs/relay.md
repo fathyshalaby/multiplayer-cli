@@ -1,17 +1,42 @@
 # Reaching your team
 
-By default `mpx share` binds to your local network, so anyone on the same wifi
-or VPN can open the link. If that is not enough, there are three other options.
+By default `mpx share` goes through the hosted relay at
+`wss://mpx-relay.fly.dev`, so the link opens for anyone, wherever they are,
+with nothing to forward on your side. The relay carries sealed frames it cannot
+read ([what it can and cannot see](#what-the-relay-can-and-cannot-see)). If the
+hosted relay is down, `share` says so and falls back to a link that works on
+your own network.
 
 ## Which one do I need?
 
 | Your situation | Use |
 |---|---|
-| Everyone is on the same wifi or VPN | nothing — this is the default |
+| People are in different places, and you want it to just work | nothing — this is the default |
+| You would rather nothing left your network | `--lan` |
 | Just trying it out on your own machine | `--local` |
-| People are in different places, and you want it to just work | **a relay** |
+| You want the relay to be yours, not ours | `--relay wss://your-relay` |
 | You already have a jumpbox, Tailscale or ngrok | an SSH tunnel |
 | A throwaway room on a network you fully trust | `--open` (no encryption) |
+
+`MPX_RELAY` changes the default without a flag: a URL to use a different relay
+every time, or `MPX_RELAY=off` for none, which is the line to put in a CI job or
+a shell profile. A `--relay` on the command line still wins over it.
+
+An `--open` room never goes through a relay you did not name. It has no token,
+so it has no encryption, and the relay would see everything. It stays on your
+network unless you pass `--relay` yourself.
+
+## Your network only
+
+```bash
+mpx share --lan
+```
+
+Binds to your local network, so anyone on the same wifi or VPN can open the
+link, and nothing goes through a relay. This was the default before 0.14.
+A browser only allows the encryption a browser seat needs on `https` pages, so
+on a plain `http://` network link, teammates may need the terminal command the
+invite page offers instead.
 
 ## This machine only
 
@@ -25,7 +50,8 @@ with a tunnel you set up yourself.
 ## Anywhere, through a relay
 
 The host dials **out** to a relay, so there is nothing to open or forward on your
-side and no inbound port anywhere.
+side and no inbound port anywhere. The hosted one is the default. To run your
+own:
 
 ```bash
 mpx relay --port 7788                       # once, on any box your team can reach

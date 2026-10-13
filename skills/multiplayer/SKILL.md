@@ -38,18 +38,20 @@ key or the coding CLI — only the host does.
 Everything below has a working default. Reach for these when the user's
 situation calls for it, not by habit.
 
-**Who can reach it.** `mpx share` binds to the local network, so anyone on the
-same wifi or VPN can open the link. If that is not enough:
+**Who can reach it.** `mpx share` goes through the hosted relay, so the link
+opens from anywhere. If it is down, `share` says so and gives a link that only
+works on the local network. To choose otherwise:
 
 ```bash
+mpx share --lan                # the local network only, no relay
 mpx share --local              # this machine only
-mpx share --relay wss://…      # reachable anywhere; remembered from then on
+mpx share --relay wss://…      # their own relay; remembered from then on
 ```
 
-A relay is any box the team can reach; `mpx relay` runs one. Tell the user
-plainly that a relay carries session content in the clear, so it should be
-theirs and behind TLS. It never receives the room token and cannot admit anyone
-the host would refuse.
+A relay only moves sealed frames: it never receives the room token, cannot read
+the session, and cannot admit anyone the host would refuse. It does see who is
+connected and how much they say. If the user would rather not share even that,
+`--lan` or their own relay (`mpx relay` runs one) is the answer.
 
 **How the room decides.** Default is `team` — majority plus a veto, with a 45s
 timer where silence counts as consent. Change it for the situation:

@@ -58,7 +58,7 @@ Three more show up once you go past the basics:
 
 **3 · Get your team in**
 
-- [Reaching your team](./relay.md) — same network, relay, or tunnel
+- [Reaching your team](./relay.md) — the hosted relay, your network, your own relay, or a tunnel
 - [Security model](./security.md) — what the link protects, and what it does not
 
 **4 · Work in parallel** *(optional; a room works fine without any of it)*

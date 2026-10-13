@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **A shared link now opens from anywhere, not only on the host's network.**
+  `mpx share` used to bind to the local network, so the link it printed,
+  `http://192.168…`, worked for the person at the next desk and failed for
+  everyone else, who is usually the person it gets sent to. It now goes
+  through the hosted relay at `wss://mpx-relay.fly.dev`, and the link is an
+  `https://` one, which also gives a teammate's browser the secure page it
+  needs for the browser seat's encryption. The relay moves sealed frames it
+  cannot read; it sees who is connected and how much they say. The editor
+  seat's "Share this folder" follows the same rules.
+
+  `--lan` keeps a room on the local network, the old default. `MPX_RELAY` picks
+  a different default relay, or turns it off with `MPX_RELAY=off`. `--relay` on
+  the command line still beats everything and is still remembered. If the
+  hosted relay is down, `share` says so and falls back to a network link after
+  five seconds instead of failing. A relay the host named does not fall back:
+  if that one fails, they hear about it.
+
+  An `--open` room never goes through a relay the host did not name. It has
+  no token and so no encryption, so it stays on the local network unless
+  `--relay` is given explicitly, and the invite says why.
+
+  The rules live in `src/server/relayChoice.ts`, a pure function with one test
+  per rule in `test/relayChoice.test.ts`, the way `gate.ts` is tested.
+
+### Fixed
+
+- **The skill told agents a relay reads the session.** It said a relay
+  "carries session content in the clear", which has not been true since frames
+  were sealed end to end. Agents were warning people off the one option that
+  makes a link work from anywhere. It now says what a relay can and cannot see.
+
+- **A browser seat sent nothing while its person was only reading.** The
+  terminal seat pings every 25 seconds; the browser seat never did. A relay's
+  edge proxy, a corporate proxy or a phone's NAT will drop a connection that
+  has been silent for a minute, and a browser seat is usually someone watching
+  quietly, which is exactly the teammate a relayed link is for. It now sends
+  the same heartbeat. Checked in a real Chromium: idle for 27 seconds after
+  joining, one heartbeat with this change and none without it.
+
+- **A relay that never connected warned that it had disconnected.** A failed
+  dial still fires `close` after the error that already reported it, and the
+  host was told "teammates will need a new invite" for a room nobody had been
+  invited to. That warning now only follows a relay that confirmed the room.
+
 ## 0.13.0
 
 The first release on npm. Every earlier version was only ever installable

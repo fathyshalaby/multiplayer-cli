@@ -174,7 +174,7 @@
         "multiplayer.relay": {
           "type": "string",
           "default": "",
-          "description": "Relay to serve through, so teammates need no route to you. Empty binds to your local network."
+          "description": "Relay to serve through, so teammates need no route to you. Empty uses the hosted relay (it only carries sealed frames) and falls back to your local network if it is down; \"off\" keeps the session on your local network."
         },
         "multiplayer.lanePreview": {
           "type": "string",
