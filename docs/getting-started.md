@@ -5,20 +5,20 @@ sent, and a turn taken.
 
 ## 1. Install
 
-The package is not on npm yet, so run it straight from the repo:
+Run it without installing anything:
 
 ```bash
-npx github:fathyshalaby/multiplayer-cli share
+npx multiplayer-cli share
 ```
 
-Once it is published, this will be the shorter form:
+Or install it, which gives you the shorter `mpx` command:
 
 ```bash
-npm install -g multiplayer-cli    # not available yet
+npm install -g multiplayer-cli
 ```
 
 The rest of these docs write `mpx` for brevity. If you are using the `npx`
-form, substitute `npx github:fathyshalaby/multiplayer-cli` wherever you see it.
+form, substitute `npx multiplayer-cli` wherever you see it.
 
 You need Node 20.11 or newer. **Only the host needs any of this** — and a coding
 CLI they are signed into. Everyone else joins with a link.

@@ -16,11 +16,12 @@ npm test
 Node 20.11+. The tests need no API key and no coding CLI: backends are covered
 by stub binaries, and the model is covered by an offline backend.
 
-The browser-seat tests want Playwright and a Chromium. Both are optional — the
-suite skips them cleanly if they are missing:
+The browser-seat tests want a Chromium. `npm install` already brings in
+Playwright as a dev dependency; the browser is optional, and the suite skips
+those tests cleanly without it:
 
 ```bash
-npm install playwright && npx playwright install chromium
+npx playwright install chromium
 ```
 
 ## Trying it without spending anything

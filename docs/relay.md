@@ -91,13 +91,11 @@ PrivateTmp=yes
 WantedBy=multi-user.target
 ```
 
-```dockerfile
-FROM node:22-alpine
-# Not on npm yet; install straight from the repo.
-RUN npm install -g github:fathyshalaby/multiplayer-cli
-USER node
-EXPOSE 7788
-ENTRYPOINT ["mpx", "relay", "--port", "7788", "--host", "0.0.0.0"]
+Or skip writing a Dockerfile: every release publishes an image.
+
+```bash
+docker run -p 7788:7788 ghcr.io/fathyshalaby/multiplayer-cli \
+  relay --port 7788 --host 0.0.0.0
 ```
 
 The relay holds no state worth backing up: rooms live only as long as their
